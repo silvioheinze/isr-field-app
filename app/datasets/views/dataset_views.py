@@ -21,6 +21,7 @@ from ..models import (
     DatasetUserMappingArea,
     DatasetGroupMappingArea,
     MappingArea,
+    VirtualContributor,
 )
 from ..forms import DatasetFieldConfigForm, DatasetFieldForm, TransferOwnershipForm
 def _get_typology_categories_map(user=None):
@@ -42,6 +43,35 @@ def _get_typology_categories_map(user=None):
         categories[str(typology.id)] = [value for value in category_values if value]
     return categories
 from .auth_views import is_manager
+
+
+def resolve_data_input_actor(request, dataset, require_virtual_contributor=False):
+    """
+    Resolve the actor (user or virtual contributor) for data input access.
+    Returns (user, virtual_contributor). Denied: (None, None).
+    For logged-in: (request.user, None). For anonymous with valid token: (None, vc).
+    When require_virtual_contributor=False, anonymous with valid token but no VC yet
+    returns (None, 'pending') to allow e.g. empty map load before name modal.
+    """
+    if request.user.is_authenticated:
+        if dataset.can_access(request.user):
+            return (request.user, None)
+        return (None, None)
+    token = request.session.get(f'anonymous_token_{dataset.id}')
+    if not getattr(dataset, 'allow_anonymous_data_input', False) or not token or dataset.anonymous_access_token != token:
+        return (None, None)
+    vc_uuid_str = request.session.get(f'virtual_contributor_uuid_{dataset.id}')
+    if not vc_uuid_str:
+        return (None, 'pending') if not require_virtual_contributor else (None, None)
+    import uuid as uuid_mod
+    try:
+        vc_uuid = uuid_mod.UUID(vc_uuid_str)
+        vc = VirtualContributor.objects.filter(dataset=dataset, uuid=vc_uuid).first()
+        if vc:
+            return (None, vc)
+    except (ValueError, TypeError):
+        pass
+    return (None, 'pending') if not require_virtual_contributor else (None, None)
 
 
 def ensure_dataset_field_config(dataset: DataSet) -> DatasetFieldConfig:
@@ -150,12 +180,19 @@ def dataset_detail_view(request, dataset_id):
     
     # Get all fields for this dataset
     all_fields = DatasetField.order_fields(DatasetField.objects.filter(dataset=dataset))
-    
+
+    anonymous_data_input_url = None
+    if getattr(dataset, 'allow_anonymous_data_input', False) and dataset.anonymous_access_token:
+        anonymous_data_input_url = request.build_absolute_uri(
+            reverse('dataset_data_input_anonymous', kwargs={'dataset_id': dataset.id, 'token': dataset.anonymous_access_token})
+        )
+
     return render(request, 'datasets/dataset_detail.html', {
         'dataset': dataset,
         'geometries_count': geometries_count,
         'data_entries_count': data_entries_count,
-        'all_fields': all_fields
+        'all_fields': all_fields,
+        'anonymous_data_input_url': anonymous_data_input_url
     })
 
 
@@ -182,6 +219,7 @@ def dataset_edit_view(request, dataset_id):
         is_public = request.POST.get('is_public') == 'on'
         allow_multiple_entries = request.POST.get('allow_multiple_entries') == 'on'
         enable_mapping_areas = request.POST.get('enable_mapping_areas') == 'on'
+        allow_anonymous_data_input = request.POST.get('allow_anonymous_data_input') == 'on'
         
         if name:
             dataset.name = name
@@ -197,6 +235,15 @@ def dataset_edit_view(request, dataset_id):
                 dataset.enable_mapping_areas = enable_mapping_areas
             except AttributeError:
                 pass  # Field doesn't exist yet, skip
+            # Handle allow_anonymous_data_input
+            try:
+                dataset.allow_anonymous_data_input = allow_anonymous_data_input
+                if allow_anonymous_data_input:
+                    dataset.ensure_anonymous_access_token()
+                else:
+                    dataset.anonymous_access_token = None
+            except AttributeError:
+                pass
             dataset.save()
             
             messages.success(request, 'Dataset updated successfully!')
@@ -756,7 +803,149 @@ def dataset_data_input_view(request, dataset_id):
         'fields_data': fields_data,
         'enable_mapping_areas': enable_mapping_areas,
         'allow_multiple_entries': allow_multiple_entries,
-        'users_for_allocation': users_for_allocation
+        'users_for_allocation': users_for_allocation,
+        'is_anonymous_data_input': False,
+        'show_name_modal': False,
+        'virtual_contributor_display_name': None,
+    })
+
+
+def register_virtual_user_view(request, dataset_id):
+    """Create or update a virtual contributor for anonymous data input. No login required."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+    dataset = get_object_or_404(DataSet, pk=dataset_id)
+    token = request.session.get(f'anonymous_token_{dataset_id}')
+    if not getattr(dataset, 'allow_anonymous_data_input', False) or not token or dataset.anonymous_access_token != token:
+        return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+    import uuid as uuid_mod
+    import json
+    try:
+        body = json.loads(request.body) if request.body else {}
+    except json.JSONDecodeError:
+        body = {}
+    vc_uuid_str = body.get('uuid')
+    display_name = (body.get('display_name') or '').strip()[:255]
+    if not vc_uuid_str:
+        return JsonResponse({'success': False, 'error': 'UUID is required'}, status=400)
+    try:
+        vc_uuid = uuid_mod.UUID(vc_uuid_str)
+    except (ValueError, TypeError):
+        return JsonResponse({'success': False, 'error': 'Invalid UUID'}, status=400)
+    vc, created = VirtualContributor.objects.get_or_create(
+        dataset=dataset,
+        uuid=vc_uuid,
+        defaults={'display_name': display_name}
+    )
+    if not created and display_name:
+        vc.display_name = display_name
+        vc.save(update_fields=['display_name', 'last_seen_at'])
+    request.session[f'virtual_contributor_uuid_{dataset_id}'] = str(vc_uuid)
+    request.session.modified = True
+    return JsonResponse({'success': True, 'display_name': vc.display_name or 'Anonymous'})
+
+
+def dataset_data_input_anonymous_view(request, dataset_id, token):
+    """Data input view for anonymous access - virtual contributors see only their own geometries/entries."""
+    dataset = get_object_or_404(DataSet, pk=dataset_id)
+    if not getattr(dataset, 'allow_anonymous_data_input', False) or dataset.anonymous_access_token != token:
+        return render(request, 'datasets/403.html', status=403)
+
+    # Store token in session so API calls from this page can be validated
+    request.session[f'anonymous_token_{dataset_id}'] = token
+    request.session.modified = True
+
+    # Get or resolve virtual contributor from session
+    session_key = f'virtual_contributor_uuid_{dataset_id}'
+    vc_uuid_str = request.session.get(session_key)
+    virtual_contributor = None
+    if vc_uuid_str:
+        try:
+            import uuid as uuid_mod
+            vc_uuid = uuid_mod.UUID(vc_uuid_str)
+            virtual_contributor = VirtualContributor.objects.filter(
+                dataset=dataset, uuid=vc_uuid
+            ).first()
+        except (ValueError, TypeError):
+            pass
+
+    # Filter geometries: virtual contributors see only their own
+    if virtual_contributor:
+        geometries_qs = DataGeometry.objects.filter(
+            dataset=dataset, virtual_contributor=virtual_contributor
+        ).prefetch_related('entries')
+        geometries = list(geometries_qs)
+    else:
+        geometries = []
+
+    # Prepare map data (same structure as logged-in view)
+    map_data = []
+    for geometry in geometries:
+        map_point = {
+            'id': geometry.id,
+            'id_kurz': geometry.id_kurz,
+            'address': geometry.address,
+            'lat': geometry.geometry.y,
+            'lng': geometry.geometry.x,
+            'entries_count': geometry.entries.count(),
+            'user': geometry.get_creator_display_name(),
+            'entries': []
+        }
+        for entry in geometry.entries.all():
+            entry_data = {
+                'id': entry.id,
+                'name': entry.name,
+                'year': entry.year,
+                'user': entry.get_creator_display_name()
+            }
+            for field in entry.fields.all():
+                entry_data[field.field_name] = field.get_typed_value()
+            map_point['entries'].append(entry_data)
+        map_data.append(map_point)
+
+    all_fields = DatasetField.order_fields(DatasetField.objects.filter(dataset=dataset, enabled=True))
+    if not all_fields.exists():
+        all_fields_qs = DatasetField.objects.filter(dataset=dataset)
+        if all_fields_qs.exists():
+            all_fields_qs.update(enabled=True)
+            all_fields = DatasetField.order_fields(DatasetField.objects.filter(dataset=dataset, enabled=True))
+
+    fields_data = []
+    for field in all_fields:
+        field_data = {
+            'id': field.id,
+            'name': field.label,
+            'label': field.label,
+            'field_type': field.field_type,
+            'field_name': field.field_name,
+            'required': field.required,
+            'enabled': field.enabled,
+            'non_editable': field.non_editable,
+            'help_text': field.help_text or '',
+            'choices': field.choices or '',
+            'order': field.order,
+            'typology_choices': field.get_choices_list(),
+            'typology_category': field.typology_category or ''
+        }
+        fields_data.append(field_data)
+
+    allow_multiple_entries = getattr(dataset, 'allow_multiple_entries', False)
+    enable_mapping_areas = False  # Hide for anonymous users
+
+    virtual_contributor_display_name = virtual_contributor.display_name if virtual_contributor and virtual_contributor.display_name else None
+    return render(request, 'datasets/dataset_data_input.html', {
+        'dataset': dataset,
+        'geometries': geometries,
+        'typology_data': None,
+        'all_fields': all_fields,
+        'fields_data': fields_data,
+        'enable_mapping_areas': enable_mapping_areas,
+        'allow_multiple_entries': allow_multiple_entries,
+        'users_for_allocation': [],
+        'is_anonymous_data_input': True,
+        'anonymous_access_token': token,
+        'show_name_modal': virtual_contributor is None,
+        'virtual_contributor_display_name': virtual_contributor_display_name,
     })
 
 
@@ -875,47 +1064,37 @@ def dataset_fields_view(request, dataset_id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@login_required
 def dataset_map_data_view(request, dataset_id):
     """API endpoint to get lightweight map data for a dataset (coordinates only)"""
     try:
         dataset = get_object_or_404(DataSet, pk=dataset_id)
-        if not dataset.can_access(request.user):
-            return render(request, 'datasets/403.html', status=403)
-        
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=False)
+        if user is None and vc is None:
+            return JsonResponse({'error': 'Access denied'}, status=403)
+        if vc == 'pending':
+            return JsonResponse({'map_data': []})
+
         # Get map bounds from request parameters
         bounds = request.GET.get('bounds')
-        
         if bounds:
             try:
-                # Parse bounds: "south,west,north,east"
-                south, west, north, east = map(float, bounds.split(','))
-                
-                # Filter geometries within the bounds using spatial lookups
                 from django.contrib.gis.geos import Polygon
-                
-                # Create a bounding box polygon
+                south, west, north, east = map(float, bounds.split(','))
                 bbox = Polygon.from_bbox((west, south, east, north))
-                
-                # Filter geometries within the bounds (lightweight query)
                 geometries = DataGeometry.objects.filter(
                     dataset=dataset,
                     geometry__within=bbox
-                ).only('id', 'id_kurz', 'address', 'geometry', 'user__username')
-            except (ValueError, TypeError) as e:
-                # If bounds parsing fails, get all geometries
-                geometries = DataGeometry.objects.filter(dataset=dataset).only(
-                    'id', 'id_kurz', 'address', 'geometry', 'user__username'
-                )
+                ).select_related('user', 'virtual_contributor')
+            except (ValueError, TypeError):
+                geometries = DataGeometry.objects.filter(dataset=dataset).select_related('user', 'virtual_contributor')
         else:
-            # No bounds provided, get all geometries (lightweight query)
-            geometries = DataGeometry.objects.filter(dataset=dataset).only(
-                'id', 'id_kurz', 'address', 'geometry', 'user__username'
-            )
-        
-        geometries = dataset.filter_geometries_for_user(geometries, request.user)
+            geometries = DataGeometry.objects.filter(dataset=dataset).select_related('user', 'virtual_contributor')
 
-        # Prepare lightweight map data
+        if user:
+            geometries = dataset.filter_geometries_for_user(geometries, user)
+        else:
+            geometries = geometries.filter(virtual_contributor=vc)
+
         map_data = []
         for geometry in geometries:
             try:
@@ -925,14 +1104,13 @@ def dataset_map_data_view(request, dataset_id):
                     'address': geometry.address,
                     'lat': geometry.geometry.y,
                     'lng': geometry.geometry.x,
-                    'user': geometry.user.username if geometry.user else 'Unknown'
+                    'user': geometry.get_creator_display_name()
                 }
                 map_data.append(map_point)
-            except Exception as e:
+            except Exception:
                 continue
-        
+
         return JsonResponse({'map_data': map_data})
-        
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 

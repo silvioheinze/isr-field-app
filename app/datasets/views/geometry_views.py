@@ -5,20 +5,23 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.contrib.gis.geos import Point
 
-from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DatasetField
+from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DatasetField, VirtualContributor
+from .dataset_views import resolve_data_input_actor
 
 
-@login_required
 def geometry_create_view(request, dataset_id):
     """Create a new geometry point"""
     dataset = get_object_or_404(DataSet, id=dataset_id)
-    
-    # Check if user has access to this dataset
-    if not dataset.can_access(request.user):
+    user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+    if user is None and vc is None:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         return render(request, 'datasets/403.html', status=403)
-    
+    if user is None and vc == 'pending':
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
+        return render(request, 'datasets/403.html', status=403)
+
     if request.method == 'POST':
         # Handle AJAX requests
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -46,7 +49,8 @@ def geometry_create_view(request, dataset_id):
                         id_kurz=id_kurz,
                         address=address,
                         geometry=Point(float(lng), float(lat)),
-                        user=request.user
+                        user=user,
+                        virtual_contributor=vc
                     )
                     
                     return JsonResponse({
@@ -70,16 +74,19 @@ def geometry_create_view(request, dataset_id):
         
         if id_kurz and lng and lat:
             try:
-                # Create geometry point
                 geometry = DataGeometry.objects.create(
                     dataset=dataset,
                     id_kurz=id_kurz,
                     address=address or f'Unknown Address ({id_kurz})',
                     geometry=Point(float(lng), float(lat)),
-                    user=request.user
+                    user=user,
+                    virtual_contributor=vc
                 )
                 
                 messages.success(request, f'Geometry point "{id_kurz}" created successfully!')
+                from django.urls import reverse
+                if vc:
+                    return redirect('dataset_data_input_anonymous', dataset_id=dataset.id, token=dataset.anonymous_access_token)
                 return redirect('dataset_data_input', dataset_id=dataset.id)
             except Exception as e:
                 messages.error(request, f'Error creating geometry: {str(e)}')
@@ -91,40 +98,42 @@ def geometry_create_view(request, dataset_id):
     })
 
 
-@login_required
 def geometry_details_view(request, geometry_id):
     """API endpoint to get detailed data for a specific geometry point"""
     try:
         geometry = get_object_or_404(DataGeometry, pk=geometry_id)
-        if not geometry.dataset.can_access(request.user):
+        dataset = geometry.dataset
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+        if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        if not geometry.dataset.user_has_geometry_access(request.user, geometry):
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        
-        # Get enabled fields for this dataset in the correct order
+        if user is None and vc == 'pending':
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
+        if user:
+            if not dataset.user_has_geometry_access(user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        else:
+            if geometry.virtual_contributor_id != vc.id:
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+
         enabled_fields = DatasetField.order_fields(DatasetField.objects.filter(
-            dataset=geometry.dataset, 
+            dataset=dataset,
             enabled=True
         ))
-        
-        # Prepare detailed geometry data
         geometry_data = {
             'id': geometry.id,
             'id_kurz': geometry.id_kurz,
             'address': geometry.address,
             'lat': geometry.geometry.y,
             'lng': geometry.geometry.x,
-            'user': geometry.user.username if geometry.user else 'Unknown',
+            'user': geometry.get_creator_display_name(),
             'entries': []
         }
-        
-        # Add entry data for this geometry
         for entry in geometry.entries.all():
             entry_data = {
                 'id': entry.id,
                 'name': entry.name,
                 'year': entry.year,
-                'user': entry.user.username if entry.user else 'Unknown'
+                'user': entry.get_creator_display_name()
             }
             
             # Add only enabled field values in the correct order

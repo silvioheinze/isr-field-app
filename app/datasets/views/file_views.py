@@ -8,6 +8,7 @@ import os
 import mimetypes
 
 from ..models import DataSet, DataGeometry, DataEntry, DataEntryFile
+from .dataset_views import resolve_data_input_actor
 
 
 @login_required
@@ -98,30 +99,31 @@ def file_delete_view(request, file_id):
     })
 
 
-@login_required
 def upload_files_view(request):
     """Upload files for a geometry (new API endpoint)"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
-    
     try:
         geometry_id = request.POST.get('geometry_id')
         if not geometry_id:
             return JsonResponse({'success': False, 'error': 'Geometry ID is required'}, status=400)
-        
-        # Get the geometry
         try:
             geometry = DataGeometry.objects.get(pk=geometry_id)
         except DataGeometry.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Geometry not found'}, status=404)
-        
-        # Check if user has access to this dataset
         dataset = geometry.dataset
-        if not dataset.can_access(request.user):
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+        if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        if not dataset.user_has_geometry_access(request.user, geometry):
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        
+        if user is None and vc == 'pending':
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
+        if user:
+            if not dataset.user_has_geometry_access(user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        else:
+            if geometry.virtual_contributor_id != vc.id:
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+
         files = request.FILES.getlist('files')
         if not files:
             return JsonResponse({'success': False, 'error': 'No files provided'}, status=400)
@@ -133,20 +135,19 @@ def upload_files_view(request):
                 # Create or get the first entry for this geometry
                 entry = geometry.entries.first()
                 if not entry:
-                    # Create a default entry if none exists
                     entry = DataEntry.objects.create(
                         geometry=geometry,
                         name=geometry.id_kurz,
-                        user=request.user
+                        user=user,
+                        virtual_contributor=vc
                     )
-                
                 file_obj = DataEntryFile.objects.create(
                     entry=entry,
                     file=file,
                     filename=file.name,
                     file_type=file.content_type,
                     file_size=file.size,
-                    upload_user=request.user
+                    upload_user=user
                 )
                 
                 uploaded_files.append({
@@ -170,18 +171,22 @@ def upload_files_view(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-@login_required
 def geometry_files_view(request, geometry_id):
     """Get files for a specific geometry"""
     try:
         geometry = get_object_or_404(DataGeometry, pk=geometry_id)
-        
-        # Check if user has access to this dataset
         dataset = geometry.dataset
-        if not dataset.can_access(request.user):
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+        if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        if not dataset.user_has_geometry_access(request.user, geometry):
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        if user is None and vc == 'pending':
+            return JsonResponse({'success': True, 'files': []})
+        if user:
+            if not dataset.user_has_geometry_access(user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        else:
+            if geometry.virtual_contributor_id != vc.id:
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         files = DataEntryFile.objects.filter(entry__geometry=geometry).order_by('-upload_date')
         
@@ -206,21 +211,25 @@ def geometry_files_view(request, geometry_id):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-@login_required
 def delete_file_view(request, file_id):
     """Delete a file (new API endpoint)"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
-    
     try:
         file_obj = get_object_or_404(DataEntryFile, pk=file_id)
-        
-        # Check if user has access to this file's dataset
-        dataset = file_obj.entry.geometry.dataset
-        if not dataset.can_access(request.user):
+        geometry = file_obj.entry.geometry
+        dataset = geometry.dataset
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+        if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        if not dataset.user_has_geometry_access(request.user, file_obj.entry.geometry):
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        if user is None and vc == 'pending':
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
+        if user:
+            if not dataset.user_has_geometry_access(user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        else:
+            if geometry.virtual_contributor_id != vc.id:
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         filename = file_obj.filename
         file_obj.delete()

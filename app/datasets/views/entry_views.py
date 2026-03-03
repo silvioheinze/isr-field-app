@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from django.db import transaction
 
 from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DatasetField
+from .dataset_views import resolve_data_input_actor
 
 
 @login_required
@@ -111,22 +112,30 @@ def entry_edit_view(request, entry_id):
     })
 
 
-@login_required
 def entry_create_view(request, geometry_id):
     """Create a new entry for a geometry"""
     geometry = get_object_or_404(DataGeometry, id=geometry_id)
-    
-    # Check if user has access to this geometry's dataset
     dataset = geometry.dataset
-    if not dataset.can_access(request.user):
+    user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+    if user is None and vc is None:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         return render(request, 'datasets/403.html', status=403)
-    if not dataset.user_has_geometry_access(request.user, geometry):
+    if user is None and vc == 'pending':
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
         return render(request, 'datasets/403.html', status=403)
-    
+    if user:
+        if not dataset.user_has_geometry_access(user, geometry):
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+            return render(request, 'datasets/403.html', status=403)
+    else:
+        if geometry.virtual_contributor_id != vc.id:
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+            return render(request, 'datasets/403.html', status=403)
+
     if request.method == 'POST':
         name = request.POST.get('name')
         year = request.POST.get('year')
@@ -137,12 +146,12 @@ def entry_create_view(request, geometry_id):
             except ValueError:
                 year_int = None
             
-            # Create entry
             entry = DataEntry.objects.create(
                 geometry=geometry,
                 name=name,
                 year=year_int,
-                user=request.user
+                user=user,
+                virtual_contributor=vc
             )
             
             # Create field values
@@ -196,6 +205,9 @@ def entry_create_view(request, geometry_id):
                 })
             
             messages.success(request, f'Entry "{name}" created successfully!')
+            if vc:
+                from django.urls import reverse
+                return redirect('dataset_data_input_anonymous', dataset_id=geometry.dataset.id, token=geometry.dataset.anonymous_access_token)
             return redirect('dataset_data_input', dataset_id=geometry.dataset.id)
         else:
             error_msg = 'Entry name is required.'
@@ -208,29 +220,30 @@ def entry_create_view(request, geometry_id):
     })
 
 
-@login_required
 def save_entries_view(request):
     """Save entries with updated field values"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
-    
     try:
         geometry_id = request.POST.get('geometry_id')
         if not geometry_id:
             return JsonResponse({'success': False, 'error': 'Geometry ID is required'}, status=400)
-        
-        # Get the geometry
         try:
             geometry = DataGeometry.objects.get(pk=geometry_id)
         except DataGeometry.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Geometry not found'}, status=404)
-        
-        # Check if user has access to this dataset
         dataset = geometry.dataset
-        if not dataset.can_access(request.user):
+        user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
+        if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
-        if not dataset.user_has_geometry_access(request.user, geometry):
-            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        if user is None and vc == 'pending':
+            return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
+        if user:
+            if not dataset.user_has_geometry_access(user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        else:
+            if geometry.virtual_contributor_id != vc.id:
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         # Process entries data
         entries_data = {}

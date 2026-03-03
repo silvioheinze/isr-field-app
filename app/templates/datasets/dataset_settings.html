@@ -68,6 +68,23 @@
                                 <label class="form-check-label fw-semibold" for="enable_mapping_areas">Enable mapping areas</label>
                                 <div class="form-text">When enabled, the Mapping Areas button will be available in the data input view for organizing and restricting access to specific geographic regions.</div>
                             </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="allow_anonymous_data_input" name="allow_anonymous_data_input" {% if dataset.allow_anonymous_data_input %}checked{% endif %}>
+                                <label class="form-check-label fw-semibold" for="allow_anonymous_data_input">Allow anonymous data input</label>
+                                <div class="form-text">When enabled, anyone with the shareable link can add geometry points and entries without logging in. Contributors see only their own data.</div>
+                            </div>
+                            {% if dataset.allow_anonymous_data_input and dataset.anonymous_access_token %}
+                            <div class="mt-3 p-3 bg-light rounded">
+                                <label class="form-label fw-semibold small">Shareable data input URL</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" id="anonymousDataInputUrl" readonly
+                                        value="{{ request.scheme }}://{{ request.get_host }}{% url 'dataset_data_input_anonymous' dataset_id=dataset.id token=dataset.anonymous_access_token %}">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('anonymousDataInputUrl').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000)">
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

@@ -160,6 +160,27 @@
     </div>
 <!-- </div> -->
 
+<!-- Virtual User Name Modal (anonymous data input) -->
+<div class="modal fade" id="virtualUserNameModal" tabindex="-1" aria-labelledby="virtualUserNameModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="virtualUserNameModalLabel">{% trans "Welcome" %}</h5>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">{% trans "You can add geometry points and data entries without logging in. Optionally, enter a name to identify your contributions:" %}</p>
+                <div class="mb-0">
+                    <label for="virtualUserDisplayName" class="form-label">{% trans "Your name (optional)" %}</label>
+                    <input type="text" class="form-control" id="virtualUserDisplayName" placeholder="{% trans 'e.g. John Doe' %}" maxlength="255">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="virtualUserNameSubmit">{% trans "Continue" %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- CSRF Token for JavaScript -->
 {% csrf_token %}
 
@@ -179,8 +200,11 @@
     console.log('window.allFields initialized:', window.allFields);
     window.allowMultipleEntries = {% if allow_multiple_entries %}true{% else %}false{% endif %};
     window.datasetId = {{ dataset.id }};
-    window.isDatasetOwner = {% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %};
+    window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
     window.enableMappingAreas = {% if enable_mapping_areas %}true{% else %}false{% endif %};
+    window.isAnonymousDataInput = {% if is_anonymous_data_input %}true{% else %}false{% endif %};
+    window.showNameModal = {% if show_name_modal %}true{% else %}false{% endif %};
+    {% if is_anonymous_data_input %}window.anonymousAccessToken = "{{ anonymous_access_token|escapejs }}";{% endif %}
     
     // Translation strings for JavaScript
     window.translations = {
@@ -205,6 +229,37 @@
         var typologyData = {% if typology_data %}{{ typology_data|safe }}{% else %}null{% endif %};
         var allFields = window.allFields || [];
         initializeDataInput(typologyData, allFields);
+        if (window.showNameModal && window.isAnonymousDataInput) {
+            var modal = new bootstrap.Modal(document.getElementById('virtualUserNameModal'));
+            modal.show();
+            document.getElementById('virtualUserNameSubmit').addEventListener('click', function() {
+                var uuid = localStorage.getItem('virtualUserUuid_' + window.datasetId);
+                if (!uuid) {
+                    uuid = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/x/g, function() { return (Math.random()*16|0).toString(16); });
+                    localStorage.setItem('virtualUserUuid_' + window.datasetId, uuid);
+                }
+                var displayName = document.getElementById('virtualUserDisplayName').value.trim();
+                var formData = new FormData();
+                formData.append('uuid', uuid);
+                formData.append('display_name', displayName);
+                formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+                fetch('/datasets/' + window.datasetId + '/register-virtual-user/', {
+                    method: 'POST',
+                    body: JSON.stringify({uuid: uuid, display_name: displayName}),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin'
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.success) {
+                        modal.hide();
+                        window.location.reload();
+                    }
+                });
+            });
+        }
     });
 </script>
 {% endblock %}

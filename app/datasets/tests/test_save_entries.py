@@ -94,13 +94,13 @@ class SaveEntriesViewTest(TestCase):
         )
     
     def test_save_entries_unauthenticated(self):
-        """Test that unauthenticated users cannot save entries"""
+        """Test that unauthenticated users without anonymous token cannot save entries"""
         response = self.client.post('/entries/save/', {
             'geometry_id': self.geometry.id,
             'entries[0][id]': self.entry1.id,
             'entries[0][fields][test_text]': 'Updated Text'
         })
-        self.assertEqual(response.status_code, 302)  # Redirect to login
+        self.assertEqual(response.status_code, 403)  # Access denied
     
     def test_save_entries_get_method(self):
         """Test that GET method is not allowed"""

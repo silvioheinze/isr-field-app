@@ -244,6 +244,12 @@
                         </ul>
                     </li>
                 </ul>
+                {% elif virtual_contributor_display_name %}
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="navbar-text text-white">{{ virtual_contributor_display_name }}</span>
+                    </li>
+                </ul>
                 {% else %}
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">

@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from django.contrib.auth.models import Group, User
 from django.contrib.gis.db import models as gis_models
@@ -27,6 +28,8 @@ class DataSet(models.Model):
     is_public = models.BooleanField(default=False)
     allow_multiple_entries = models.BooleanField(default=False, help_text="Allow multiple data entries per geometry point")
     enable_mapping_areas = models.BooleanField(default=False, help_text="Enable mapping areas functionality for this dataset")
+    allow_anonymous_data_input = models.BooleanField(default=False, help_text="Allow data input without login via shareable URL")
+    anonymous_access_token = models.CharField(max_length=64, unique=True, null=True, blank=True, help_text="Secret token for anonymous access URL")
 
     def __str__(self):
         return self.name
@@ -94,6 +97,14 @@ class DataSet(models.Model):
             return geometries_qs.filter(condition)
         return geometries_qs.none()
 
+    def ensure_anonymous_access_token(self):
+        """Generate anonymous_access_token if allow_anonymous_data_input is True and token is missing."""
+        if self.allow_anonymous_data_input and not self.anonymous_access_token:
+            import secrets
+            self.anonymous_access_token = secrets.token_urlsafe(48)
+            self.save(update_fields=['anonymous_access_token'])
+        return self.anonymous_access_token
+
     def user_has_geometry_access(self, user, geometry_obj):
         """
         Check whether a user is allowed to access the given geometry, considering mapping area limits.
@@ -113,17 +124,41 @@ class DataSet(models.Model):
         ordering = ['-created_at']
 
 
+class VirtualContributor(models.Model):
+    """Anonymous contributor for datasets with allow_anonymous_data_input. Tracks contributions without login."""
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    display_name = models.CharField(max_length=255, blank=True)
+    dataset = models.ForeignKey(DataSet, on_delete=models.CASCADE, related_name='virtual_contributors')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.display_name or 'Anonymous'} ({self.uuid})"
+
+    class Meta:
+        ordering = ['-created_at']
+
+
 class DataGeometry(models.Model):
     dataset = models.ForeignKey(DataSet, on_delete=models.CASCADE, related_name='geometries')
     address = models.CharField(max_length=500)
     geometry = gis_models.PointField(srid=4326)  # WGS84 coordinate system
     id_kurz = models.CharField(max_length=100)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_geometries')
+    virtual_contributor = models.ForeignKey('VirtualContributor', on_delete=models.CASCADE, null=True, blank=True, related_name='created_geometries')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.id_kurz} - {self.address}"
+
+    def get_creator_display_name(self):
+        """Return display name of the creator (user or virtual contributor)."""
+        if self.user:
+            return self.user.username
+        if self.virtual_contributor:
+            return self.virtual_contributor.display_name or 'Anonymous'
+        return 'Unknown'
 
     def save(self, *args, **kwargs):
         # Ensure the geometry is properly set if not already done
@@ -135,7 +170,10 @@ class DataGeometry(models.Model):
     class Meta:
         ordering = ['-created_at']
         verbose_name_plural = "Data Geometries"
-        unique_together = [['dataset', 'id_kurz']]
+        constraints = [
+            models.UniqueConstraint(fields=['dataset', 'id_kurz'], condition=models.Q(virtual_contributor__isnull=True), name='unique_user_geometry'),
+            models.UniqueConstraint(fields=['dataset', 'id_kurz', 'virtual_contributor'], condition=models.Q(virtual_contributor__isnull=False), name='unique_vc_geometry'),
+        ]
 
 
 class DataEntry(models.Model):
@@ -143,6 +181,7 @@ class DataEntry(models.Model):
     name = models.CharField(max_length=255, blank=True, null=True)
     year = models.IntegerField(blank=True, null=True)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_entries')
+    virtual_contributor = models.ForeignKey('VirtualContributor', on_delete=models.CASCADE, null=True, blank=True, related_name='created_entries')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -150,6 +189,14 @@ class DataEntry(models.Model):
         year_str = f" ({self.year})" if self.year else ""
         name_str = self.name or "Unnamed Entry"
         return f"{name_str} - {self.geometry.id_kurz}{year_str}"
+
+    def get_creator_display_name(self):
+        """Return display name of the creator (user or virtual contributor)."""
+        if self.user:
+            return self.user.username
+        if self.virtual_contributor:
+            return self.virtual_contributor.display_name or 'Anonymous'
+        return 'Unknown'
 
     def get_field_value(self, field_name):
         """Get the value of a specific field for this entry"""

@@ -204,6 +204,9 @@
     window.enableMappingAreas = {% if enable_mapping_areas %}true{% else %}false{% endif %};
     window.isAnonymousDataInput = {% if is_anonymous_data_input %}true{% else %}false{% endif %};
     window.showNameModal = {% if show_name_modal %}true{% else %}false{% endif %};
+    window.mapDefaultLat = {% if map_default_lat %}{{ map_default_lat }}{% else %}null{% endif %};
+    window.mapDefaultLng = {% if map_default_lng %}{{ map_default_lng }}{% else %}null{% endif %};
+    window.mapDefaultZoom = {% if map_default_zoom %}{{ map_default_zoom }}{% else %}null{% endif %};
     {% if is_anonymous_data_input %}window.anonymousAccessToken = "{{ anonymous_access_token|escapejs }}";{% endif %}
     
     // Translation strings for JavaScript

@@ -30,6 +30,9 @@ class DataSet(models.Model):
     enable_mapping_areas = models.BooleanField(default=False, help_text="Enable mapping areas functionality for this dataset")
     allow_anonymous_data_input = models.BooleanField(default=False, help_text="Allow data input without login via shareable URL")
     anonymous_access_token = models.CharField(max_length=64, unique=True, null=True, blank=True, help_text="Secret token for anonymous access URL")
+    map_default_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center latitude when opening data input")
+    map_default_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center longitude when opening data input")
+    map_default_zoom = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Default map zoom level (1–18) when opening data input")
 
     def __str__(self):
         return self.name

@@ -1985,11 +1985,7 @@ function addNewPoint(latlng) {
             iconSize: [20, 20], iconAnchor: [10, 10]
         })
     }).addTo(map);
-    if (confirm('Add new point at this location?\n\nLatitude: ' + latlng.lat.toFixed(6) + '\nLongitude: ' + latlng.lng.toFixed(6))) {
-        createNewGeometry(latlng);
-    } else {
-        map.removeLayer(addPointMarker); addPointMarker = null;
-    }
+    createNewGeometry(latlng);
 }
 
 // Create new geometry via AJAX

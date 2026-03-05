@@ -322,22 +322,34 @@ function generateEntriesTable(point) {
     
     // Entry Selection Dropdown - only show if multiple entries are allowed and there are entries
     if (window.allowMultipleEntries && sortedEntries.length > 0) {
+        // Horizontal entry list with "All Entries (N)" header and entry badges
         entriesHtml += '<div class="card mb-3">';
         entriesHtml += '<div class="card-header bg-light fw-semibold">';
         entriesHtml += '<i class="bi bi-list-ul me-2"></i>';
-        entriesHtml += 'Select an entry to edit or create a new one. Total entries: ' + sortedEntries.length;
+        entriesHtml += 'All Entries (' + sortedEntries.length + ')';
         entriesHtml += '</div>';
         entriesHtml += '<div class="card-body">';
-        entriesHtml += '<div class="mb-3">';
-        entriesHtml += '<select class="form-select" id="entrySelector" onchange="selectEntryFromDropdown(this.value)">';
-        
-        // Determine initial selection
+        // Determine initial selection before building badges
         var hasInitialSelection = false;
         if (sortedEntries.length > 0 && selectedEntryId === null) {
-            // Auto-select first entry if entries exist and nothing is selected
             selectedEntryId = sortedEntries[0].id;
             hasInitialSelection = true;
         }
+        entriesHtml += '<div id="entriesHorizontalList" class="d-flex flex-wrap gap-2 mb-3">';
+        sortedEntries.forEach(function(entry, index) {
+            var isSelected = (selectedEntryId !== null && selectedEntryId !== 'new' &&
+                (entry.id === selectedEntryId || entry.id === parseInt(selectedEntryId))) ||
+                (index === 0 && hasInitialSelection);
+            var badgeClass = 'entry-badge btn btn-sm btn-outline-secondary' + (isSelected ? ' entry-badge-selected' : '');
+            entriesHtml += '<button type="button" class="' + badgeClass + '" data-entry-id="' + entry.id + '" onclick="selectEntryFromBadge(' + entry.id + ')">';
+            entriesHtml += escapeHtml(entry.name || 'Unnamed Entry');
+            if (entry.year) entriesHtml += ' <span class="text-muted">(' + escapeHtml(String(entry.year)) + ')</span>';
+            if (entry.user) entriesHtml += ' <span class="text-muted">- ' + escapeHtml(entry.user) + '</span>';
+            entriesHtml += '</button>';
+        });
+        entriesHtml += '</div>';
+        entriesHtml += '<div class="mb-3">';
+        entriesHtml += '<select class="form-select" id="entrySelector" onchange="selectEntryFromDropdown(this.value)">';
         
         // Add option for creating new entry
         var isNewSelected = selectedEntryId === 'new';
@@ -1973,11 +1985,7 @@ function addNewPoint(latlng) {
             iconSize: [20, 20], iconAnchor: [10, 10]
         })
     }).addTo(map);
-    if (confirm('Add new point at this location?\n\nLatitude: ' + latlng.lat.toFixed(6) + '\nLongitude: ' + latlng.lng.toFixed(6))) {
-        createNewGeometry(latlng);
-    } else {
-        map.removeLayer(addPointMarker); addPointMarker = null;
-    }
+    createNewGeometry(latlng);
 }
 
 // Create new geometry via AJAX

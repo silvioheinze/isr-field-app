@@ -88,6 +88,9 @@ function initializeDataInput(typologyDataParam, fieldsData) {
 
 // Initialize the map
 function initializeMap() {
+    var defaultLat = (typeof window.mapDefaultLat === 'number') ? window.mapDefaultLat : 48.2082;
+    var defaultLng = (typeof window.mapDefaultLng === 'number') ? window.mapDefaultLng : 16.3738;
+    var defaultZoom = (typeof window.mapDefaultZoom === 'number') ? Math.max(1, Math.min(18, window.mapDefaultZoom)) : 11;
     map = L.map('map', {
         zoomControl: false,
         scrollWheelZoom: false,
@@ -96,7 +99,7 @@ function initializeMap() {
         keyboard: false,
         dragging: true,
         touchZoom: true
-    }).setView([48.2082, 16.3738], 11);
+    }).setView([defaultLat, defaultLng], defaultZoom);
     
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'

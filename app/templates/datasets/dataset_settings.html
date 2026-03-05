@@ -1,6 +1,14 @@
 {% extends 'datasets/_base.html' %}
+{% load static %}
 
 {% block title %}Settings - {{ dataset.name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+#locationChooserMap { height: 240px; width: 100%; border-radius: 6px; }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="container py-4">
@@ -89,6 +97,47 @@
                     </div>
                 </div>
 
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-light fw-semibold">
+                        <i class="bi bi-geo-alt me-2"></i>Data Input Map
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Set the initial map position and zoom level when users open the data input view. Click on the map to choose a location, or leave empty to use the default (Vienna).</p>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="map_default_lat" class="form-label">Latitude</label>
+                                <input type="number" class="form-control" id="map_default_lat" name="map_default_lat" step="any"
+                                    value="{{ dataset.map_default_lat|default:'' }}" placeholder="48.2082">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="map_default_lng" class="form-label">Longitude</label>
+                                <input type="number" class="form-control" id="map_default_lng" name="map_default_lng" step="any"
+                                    value="{{ dataset.map_default_lng|default:'' }}" placeholder="16.3738">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="map_default_zoom" class="form-label">Zoom Level</label>
+                                <input type="number" class="form-control" id="map_default_zoom" name="map_default_zoom" min="1" max="18"
+                                    value="{{ dataset.map_default_zoom|default:'' }}" placeholder="11">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small">Choose location on map</label>
+                            <div id="locationChooserMap"></div>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="locationChooserUseCenter">
+                                <i class="bi bi-crosshair"></i> Use current map center
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="locationChooserMyLocation">
+                                <i class="bi bi-geo"></i> Use my location
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="locationChooserReset">
+                                <i class="bi bi-arrow-counterclockwise"></i> Reset to default
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="d-flex flex-wrap gap-2 justify-content-end">
                     <a href="{% url 'dataset_detail' dataset.id %}" class="btn btn-outline-secondary">
                         <i class="bi bi-x-circle"></i> Cancel
@@ -166,4 +215,112 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function() {
+    var DEFAULT_LAT = 48.2082;
+    var DEFAULT_LNG = 16.3738;
+    var DEFAULT_ZOOM = 11;
+
+    function parseNum(val, defaultVal) {
+        if (val === '' || val === null || val === undefined) return defaultVal;
+        var n = parseFloat(val);
+        return isNaN(n) ? defaultVal : n;
+    }
+
+    function getInputLat() { return parseNum(document.getElementById('map_default_lat').value, DEFAULT_LAT); }
+    function getInputLng() { return parseNum(document.getElementById('map_default_lng').value, DEFAULT_LNG); }
+    function getInputZoom() {
+        var z = parseInt(document.getElementById('map_default_zoom').value, 10);
+        return (isNaN(z) || z < 1 || z > 18) ? DEFAULT_ZOOM : z;
+    }
+
+    function setInputs(lat, lng, zoom) {
+        document.getElementById('map_default_lat').value = lat.toFixed(6);
+        document.getElementById('map_default_lng').value = lng.toFixed(6);
+        document.getElementById('map_default_zoom').value = String(zoom);
+    }
+
+    var mapEl = document.getElementById('locationChooserMap');
+    if (!mapEl) return;
+
+    var initLat = getInputLat();
+    var initLng = getInputLng();
+    var initZoom = getInputZoom();
+
+    var map = L.map('locationChooserMap', {
+        center: [initLat, initLng],
+        zoom: initZoom,
+        scrollWheelZoom: true
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    var marker = L.marker([initLat, initLng], {
+        draggable: true
+    }).addTo(map);
+
+    marker.on('dragend', function() {
+        var latlng = marker.getLatLng();
+        setInputs(latlng.lat, latlng.lng, map.getZoom());
+    });
+
+    map.on('click', function(e) {
+        marker.setLatLng(e.latlng);
+        setInputs(e.latlng.lat, e.latlng.lng, map.getZoom());
+    });
+
+    document.getElementById('locationChooserUseCenter').addEventListener('click', function() {
+        var center = map.getCenter();
+        marker.setLatLng(center);
+        setInputs(center.lat, center.lng, map.getZoom());
+    });
+
+    document.getElementById('locationChooserMyLocation').addEventListener('click', function() {
+        if (!navigator.geolocation) {
+            alert('Geolocation is not supported by your browser.');
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                var lat = pos.coords.latitude;
+                var lng = pos.coords.longitude;
+                map.setView([lat, lng], Math.max(map.getZoom(), 14));
+                marker.setLatLng([lat, lng]);
+                setInputs(lat, lng, map.getZoom());
+            },
+            function() { alert('Could not get your location.'); }
+        );
+    });
+
+    document.getElementById('locationChooserReset').addEventListener('click', function() {
+        map.setView([DEFAULT_LAT, DEFAULT_LNG], DEFAULT_ZOOM);
+        marker.setLatLng([DEFAULT_LAT, DEFAULT_LNG]);
+        document.getElementById('map_default_lat').value = '';
+        document.getElementById('map_default_lng').value = '';
+        document.getElementById('map_default_zoom').value = '';
+    });
+
+    document.getElementById('map_default_lat').addEventListener('change', function() {
+        var lat = parseNum(this.value, null);
+        if (lat !== null) {
+            var lng = getInputLng();
+            map.setView([lat, lng]);
+            marker.setLatLng([lat, lng]);
+        }
+    });
+    document.getElementById('map_default_lng').addEventListener('change', function() {
+        var lng = parseNum(this.value, null);
+        if (lng !== null) {
+            var lat = getInputLat();
+            map.setView([lat, lng]);
+            marker.setLatLng([lat, lng]);
+        }
+    });
+})();
+</script>
 {% endblock %}

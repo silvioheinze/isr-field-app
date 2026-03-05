@@ -220,6 +220,9 @@ def dataset_edit_view(request, dataset_id):
         allow_multiple_entries = request.POST.get('allow_multiple_entries') == 'on'
         enable_mapping_areas = request.POST.get('enable_mapping_areas') == 'on'
         allow_anonymous_data_input = request.POST.get('allow_anonymous_data_input') == 'on'
+        map_default_lat = request.POST.get('map_default_lat')
+        map_default_lng = request.POST.get('map_default_lng')
+        map_default_zoom = request.POST.get('map_default_zoom')
         
         if name:
             dataset.name = name
@@ -243,6 +246,14 @@ def dataset_edit_view(request, dataset_id):
                 else:
                     dataset.anonymous_access_token = None
             except AttributeError:
+                pass
+            # Map defaults (graceful handling if migration not yet applied)
+            try:
+                dataset.map_default_lat = float(map_default_lat) if map_default_lat else None
+                dataset.map_default_lng = float(map_default_lng) if map_default_lng else None
+                z = int(map_default_zoom) if map_default_zoom else None
+                dataset.map_default_zoom = max(1, min(18, z)) if z is not None else None
+            except (ValueError, TypeError, AttributeError):
                 pass
             dataset.save()
             
@@ -280,14 +291,19 @@ def dataset_copy_view(request, dataset_id):
         new_name = original_dataset.name[:250] + "_Copy"
     
     # Create the new dataset
-    new_dataset = DataSet.objects.create(
-        name=new_name,
-        description=original_dataset.description,
-        owner=request.user,
-        is_public=original_dataset.is_public,
-        allow_multiple_entries=original_dataset.allow_multiple_entries,
-        enable_mapping_areas=original_dataset.enable_mapping_areas,
-    )
+    create_kwargs = {
+        'name': new_name,
+        'description': original_dataset.description,
+        'owner': request.user,
+        'is_public': original_dataset.is_public,
+        'allow_multiple_entries': original_dataset.allow_multiple_entries,
+        'enable_mapping_areas': original_dataset.enable_mapping_areas,
+    }
+    if hasattr(original_dataset, 'map_default_lat'):
+        create_kwargs['map_default_lat'] = original_dataset.map_default_lat
+        create_kwargs['map_default_lng'] = original_dataset.map_default_lng
+        create_kwargs['map_default_zoom'] = original_dataset.map_default_zoom
+    new_dataset = DataSet.objects.create(**create_kwargs)
     
     # Copy ManyToMany relationships (shared_with and shared_with_groups)
     new_dataset.shared_with.set(original_dataset.shared_with.all())
@@ -795,6 +811,10 @@ def dataset_data_input_view(request, dataset_id):
     if dataset.owner == request.user or request.user.is_superuser:
         users_for_allocation = User.objects.filter(is_active=True).order_by('username')
     
+    map_default_lat = getattr(dataset, 'map_default_lat', None)
+    map_default_lng = getattr(dataset, 'map_default_lng', None)
+    map_default_zoom = getattr(dataset, 'map_default_zoom', None)
+    
     return render(request, 'datasets/dataset_data_input.html', {
         'dataset': dataset,
         'geometries': geometries,
@@ -807,6 +827,9 @@ def dataset_data_input_view(request, dataset_id):
         'is_anonymous_data_input': False,
         'show_name_modal': False,
         'virtual_contributor_display_name': None,
+        'map_default_lat': float(map_default_lat) if map_default_lat is not None else None,
+        'map_default_lng': float(map_default_lng) if map_default_lng is not None else None,
+        'map_default_zoom': int(map_default_zoom) if map_default_zoom is not None else None,
     })
 
 
@@ -933,6 +956,10 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
     enable_mapping_areas = False  # Hide for anonymous users
 
     virtual_contributor_display_name = virtual_contributor.display_name if virtual_contributor and virtual_contributor.display_name else None
+    map_default_lat = getattr(dataset, 'map_default_lat', None)
+    map_default_lng = getattr(dataset, 'map_default_lng', None)
+    map_default_zoom = getattr(dataset, 'map_default_zoom', None)
+    
     return render(request, 'datasets/dataset_data_input.html', {
         'dataset': dataset,
         'geometries': geometries,
@@ -946,6 +973,9 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
         'anonymous_access_token': token,
         'show_name_modal': virtual_contributor is None,
         'virtual_contributor_display_name': virtual_contributor_display_name,
+        'map_default_lat': float(map_default_lat) if map_default_lat is not None else None,
+        'map_default_lng': float(map_default_lng) if map_default_lng is not None else None,
+        'map_default_zoom': int(map_default_zoom) if map_default_zoom is not None else None,
     })
 
 

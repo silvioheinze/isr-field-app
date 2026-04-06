@@ -32,7 +32,8 @@ services:
   nginx:
     build: ./nginx
     volumes:
-      - ./app/static:/home/app/web/staticfiles
+      # Must match STATIC_ROOT (app/staticfiles); admin and collected assets live here, not in app/static.
+      - ./app/staticfiles:/home/app/web/staticfiles
       - ./app/media:/home/app/web/media
 #      - static_volume:/home/app/web/staticfiles
     ports:

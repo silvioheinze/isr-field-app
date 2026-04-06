@@ -57,6 +57,9 @@ class DataSet(models.Model):
         """
         Return a list of mapping area IDs that restrict this user's access,
         or None if there are no restrictions (full dataset access).
+
+        Areas come from: per-user limits on dataset access, per-group limits,
+        and users listed as allocated on a mapping area (polygon allocation).
         """
         # Superusers and owners have full access (no restrictions)
         if user.is_superuser or user == self.owner:
@@ -74,7 +77,12 @@ class DataSet(models.Model):
             self.group_mapping_area_limits.filter(group_id__in=group_ids).values_list('mapping_area_id', flat=True)
         ) if group_ids else []
 
-        combined = set(direct_ids) | set(group_area_ids)
+        # Collaborators allocated to an area via the mapping-area UI see all data in that polygon
+        allocated_ids = list(
+            self.mapping_areas.filter(allocated_users=user).values_list('id', flat=True)
+        )
+
+        combined = set(direct_ids) | set(group_area_ids) | set(allocated_ids)
         return list(combined) if combined else None
 
     def filter_geometries_for_user(self, geometries_qs, user):

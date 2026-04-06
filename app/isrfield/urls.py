@@ -88,7 +88,12 @@ urlpatterns = [
     path('datasets/geometry/<int:geometry_id>/files/', datasets_views.geometry_files_view, name='geometry_files'),
     path('datasets/files/<int:file_id>/delete/', datasets_views.delete_file_view, name='delete_file'),
     path('entries/save/', datasets_views.save_entries_view, name='save_entries'),
-    # Mapping area URLs
+    # Mapping area URLs (outlines must be registered before the list path)
+    path(
+        'datasets/<int:dataset_id>/mapping-areas/outlines/',
+        mapping_area_views.mapping_area_outlines_view,
+        name='mapping_area_outlines',
+    ),
     path('datasets/<int:dataset_id>/mapping-areas/', mapping_area_views.mapping_area_list_view, name='mapping_area_list'),
     path('datasets/<int:dataset_id>/mapping-areas/create/', mapping_area_views.mapping_area_create_view, name='mapping_area_create'),
     path('datasets/<int:dataset_id>/mapping-areas/<int:area_id>/update/', mapping_area_views.mapping_area_update_view, name='mapping_area_update'),

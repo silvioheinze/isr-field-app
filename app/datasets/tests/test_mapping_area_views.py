@@ -15,7 +15,11 @@ class MappingAreaViewsTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='owner', password='pass')
         self.other_user = User.objects.create_user(username='other', password='pass')
-        self.dataset = DataSet.objects.create(name='Test Dataset', owner=self.owner)
+        self.dataset = DataSet.objects.create(
+            name='Test Dataset',
+            owner=self.owner,
+            enable_mapping_areas=True,
+        )
 
         self.list_url = reverse('mapping_area_list', args=[self.dataset.id])
         self.create_url = reverse('mapping_area_create', args=[self.dataset.id])
@@ -60,6 +64,15 @@ class MappingAreaViewsTests(TestCase):
         payload = response.json()
         self.assertFalse(payload['success'])
         self.assertEqual(payload['error'], 'Access denied')
+
+    def test_when_feature_disabled_owner_gets_403(self):
+        self.dataset.enable_mapping_areas = False
+        self.dataset.save(update_fields=['enable_mapping_areas'])
+        response = self.owner_client.get(self.list_url)
+        self.assertEqual(response.status_code, 403)
+        payload = response.json()
+        self.assertFalse(payload['success'])
+        self.assertIn('not enabled', payload['error'].lower())
 
     def test_owner_can_list_mapping_areas(self):
         area = MappingArea.objects.create(

@@ -201,7 +201,9 @@
     window.allowMultipleEntries = {% if allow_multiple_entries %}true{% else %}false{% endif %};
     window.datasetId = {{ dataset.id }};
     window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
-    window.enableMappingAreas = {% if enable_mapping_areas %}true{% else %}false{% endif %};
+    {# Only owner/superuser should load or draw mapping-area polygons; collaborators keep the flag false. #}
+    window.enableMappingAreas = {% if enable_mapping_areas and user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
+    window.showCollaboratorMappingAreaOutlines = {% if show_collaborator_mapping_area_outlines %}true{% else %}false{% endif %};
     window.isAnonymousDataInput = {% if is_anonymous_data_input %}true{% else %}false{% endif %};
     window.showNameModal = {% if show_name_modal %}true{% else %}false{% endif %};
     window.mapDefaultLat = {% if map_default_lat %}{{ map_default_lat }}{% else %}null{% endif %};

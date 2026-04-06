@@ -15,6 +15,7 @@ var gotoLocationClickHandler = null;
 var mappingAreasMode = false;
 var mappingAreasPanelVisible = false;
 var mappingAreaPolygons = [];
+var collaboratorMappingAreaPolygons = [];
 var currentDrawingPolygon = null;
 var currentEditingPolygon = null;
 var selectedMappingArea = null;
@@ -127,8 +128,11 @@ function loadMapData(preserveView) {
     .then(response => response.json())
     .then(data => {
         if (data.map_data) addMarkersToMap(data.map_data, preserveView);
+        loadCollaboratorMappingAreaOutlines();
     })
-    .catch(() => {});
+    .catch(() => {
+        loadCollaboratorMappingAreaOutlines();
+    });
 }
 
 // Load fields from API when window.allFields is empty
@@ -2039,6 +2043,68 @@ function createNewGeometry(latlng) {
 
 // ==================== MAPPING AREAS FUNCTIONS ====================
 
+function clearCollaboratorMappingAreaOutlines() {
+    if (!map) return;
+    collaboratorMappingAreaPolygons.forEach(function(polygon) {
+        try {
+            map.removeLayer(polygon);
+        } catch (e) {
+            /* ignore */
+        }
+    });
+    collaboratorMappingAreaPolygons = [];
+}
+
+function drawCollaboratorMappingAreaOutlines(areas) {
+    clearCollaboratorMappingAreaOutlines();
+    if (!map || !areas || !areas.length) return;
+    areas.forEach(function(area) {
+        if (!area.geometry || !area.geometry.coordinates) return;
+        var coordinates = area.geometry.coordinates[0];
+        var latlngs = coordinates.map(function(coord) {
+            return [coord[1], coord[0]];
+        });
+        var polygon = L.polygon(latlngs, {
+            color: '#0f766e',
+            weight: 2,
+            dashArray: '8 6',
+            opacity: 0.95,
+            fillColor: '#14b8a6',
+            fillOpacity: 0.12,
+            interactive: false
+        }).addTo(map);
+        collaboratorMappingAreaPolygons.push(polygon);
+    });
+}
+
+function loadCollaboratorMappingAreaOutlines() {
+    if (typeof window.showCollaboratorMappingAreaOutlines === 'undefined' || !window.showCollaboratorMappingAreaOutlines) {
+        clearCollaboratorMappingAreaOutlines();
+        return;
+    }
+    if (!window.datasetId || !map) {
+        return;
+    }
+    fetch('/datasets/' + window.datasetId + '/mapping-areas/outlines/', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(data) {
+            if (data.success && Array.isArray(data.mapping_areas)) {
+                drawCollaboratorMappingAreaOutlines(data.mapping_areas);
+            } else {
+                clearCollaboratorMappingAreaOutlines();
+            }
+        })
+        .catch(function() {
+            clearCollaboratorMappingAreaOutlines();
+        });
+}
+
 // Toggle mapping areas panel
 function toggleMappingAreas() {
     var panel = document.getElementById('mappingAreasPanel');
@@ -2068,6 +2134,10 @@ function toggleMappingAreas() {
 
 // Load mapping areas from API
 function loadMappingAreas() {
+    if (!window.enableMappingAreas || !window.isDatasetOwner) {
+        drawMappingAreasOnMap([]);
+        return;
+    }
     if (!window.datasetId) {
         console.error('Dataset ID is not available for loading mapping areas.');
         var listContainer = document.getElementById('mappingAreasList');
@@ -2186,7 +2256,11 @@ function drawMappingAreasOnMap(areas) {
         map.removeLayer(polygon);
     });
     mappingAreaPolygons = [];
-    
+
+    if (!window.enableMappingAreas || !window.isDatasetOwner) {
+        return;
+    }
+
     // Draw new polygons
     areas.forEach(function(area) {
         if (area.geometry && area.geometry.coordinates) {

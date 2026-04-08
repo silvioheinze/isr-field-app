@@ -95,10 +95,15 @@
                                     <button type="button" id="drawPolygonBtn" class="btn btn-primary btn-sm" onclick="startDrawingPolygon()">
                                         <i class="bi bi-pencil"></i> {% trans "Draw Polygon" %}
                                     </button>
+                                    <button type="button" id="importGeojsonBtn" class="btn btn-outline-primary btn-sm" onclick="triggerImportMappingAreaGeojson()" title="{% trans 'WGS84 GeoJSON with Polygon or MultiPolygon' %}">
+                                        <i class="bi bi-file-earmark-arrow-up"></i> {% trans "Import GeoJSON" %}
+                                    </button>
+                                    <input type="file" id="importMappingAreaGeojsonInput" class="d-none" accept=".geojson,.json,application/geo+json" aria-label="{% trans 'GeoJSON file' %}">
                                     <button type="button" id="finishDrawingBtn" class="btn btn-success btn-sm" onclick="finishDrawingPolygon()" disabled style="display: none;">
                                         <i class="bi bi-check2-circle"></i> {% trans "Finish Drawing" %}
                                     </button>
                                 </div>
+                                <p class="form-text small text-muted mb-0 mt-1">{% trans "Import uses WGS84 (longitude, latitude). Polygon holes and MultiPolygons are preserved." %}</p>
                             </div>
                             
                             <!-- Mapping Areas List -->

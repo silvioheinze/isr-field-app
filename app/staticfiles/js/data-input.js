@@ -2249,11 +2249,10 @@ function displayMappingAreas(areas) {
     listContainer.innerHTML = html;
 }
 
-// Draw mapping areas on the map
+// Draw mapping areas on the map (GeoJSON Polygon or MultiPolygon)
 function drawMappingAreasOnMap(areas) {
-    // Remove existing polygons
-    mappingAreaPolygons.forEach(function(polygon) {
-        map.removeLayer(polygon);
+    mappingAreaPolygons.forEach(function(layer) {
+        map.removeLayer(layer);
     });
     mappingAreaPolygons = [];
 
@@ -2263,33 +2262,31 @@ function drawMappingAreasOnMap(areas) {
 
     // Draw new polygons
     areas.forEach(function(area) {
-        if (area.geometry && area.geometry.coordinates) {
-            var coordinates = area.geometry.coordinates[0]; // First ring (exterior)
-            var latlngs = coordinates.map(function(coord) {
-                return [coord[1], coord[0]]; // GeoJSON is [lng, lat], Leaflet needs [lat, lng]
-            });
-            
-            var polygon = L.polygon(latlngs, {
+        if (!area.geometry || !area.geometry.type) {
+            return;
+        }
+        if (area.geometry.type !== 'Polygon' && area.geometry.type !== 'MultiPolygon') {
+            return;
+        }
+        var gj = L.geoJSON(area.geometry, {
+            style: {
                 color: '#ffc107',
                 weight: 2,
                 opacity: 0.8,
                 fillColor: '#ffc107',
                 fillOpacity: 0.2
-            }).addTo(map);
-            
-            polygon.mappingAreaId = area.id;
-            polygon.mappingAreaData = area;
-            
-            // Add click handler
-            polygon.on('click', function() {
-                selectMappingArea(area.id);
-            });
-            
-            // Add popup
-            polygon.bindPopup('<strong>' + escapeHtml(area.name) + '</strong><br>Points: ' + area.point_count);
-            
-            mappingAreaPolygons.push(polygon);
-        }
+            }
+        }).addTo(map);
+
+        gj.mappingAreaId = area.id;
+        gj.mappingAreaData = area;
+
+        gj.on('click', function() {
+            selectMappingArea(area.id);
+        });
+
+        gj.bindPopup('<strong>' + escapeHtml(area.name) + '</strong><br>Points: ' + area.point_count);
+        mappingAreaPolygons.push(gj);
     });
 }
 
@@ -2463,7 +2460,8 @@ function finishDrawingPolygon() {
         finishBtn.style.display = 'none';
     }
     
-    showPolygonForm(null, coordinates);
+    var drawGeometry = { type: 'Polygon', coordinates: [coordinates] };
+    showPolygonForm(null, coordinates, { geometry: drawGeometry });
 }
 
 // Start editing a polygon
@@ -2472,42 +2470,25 @@ function startEditingPolygon(areaId) {
         selectMappingArea(areaId);
     }
     if (!selectedMappingArea) return;
-    
+
     stopDrawingPolygon();
-    
-    // Find the polygon
+
     var polygon = mappingAreaPolygons.find(function(p) {
         return p.mappingAreaId === selectedMappingArea;
     });
-    
+
     if (!polygon) return;
-    
-    // Store original coordinates for editing
-    polygon.originalLatLngs = polygon.getLatLngs()[0].map(function(latlng) {
-        return [latlng.lat, latlng.lng];
-    });
-    
-    // Make polygon editable by allowing vertex dragging
-    // We'll use a simple approach: allow clicking to add/remove vertices
-    // For now, we'll just allow the user to finish editing and save
+
     currentEditingPolygon = polygon;
-    
-    // Highlight the polygon
+
     polygon.setStyle({
         color: '#28a745',
         fillColor: '#28a745',
         fillOpacity: 0.3,
         weight: 3
     });
-    
-    // Show save button with current coordinates
-    var latlngs = polygon.getLatLngs()[0];
-    var coordinates = latlngs.map(function(latlng) {
-        return [latlng.lng, latlng.lat];
-    });
-    coordinates.push(coordinates[0]); // Close the ring
-    currentEditingPolygonCoordinates = coordinates;
-    showPolygonForm(selectedMappingArea, coordinates);
+
+    showPolygonForm(selectedMappingArea, null);
 }
 
 // Stop editing polygon
@@ -2576,8 +2557,194 @@ function editMappingArea(areaId) {
     startEditingPolygon(areaId);
 }
 
+// --- GeoJSON import (Polygon / MultiPolygon, optional holes) ---
+
+function normalizeExteriorRingLngLat(ring) {
+    if (!ring || ring.length < 3) {
+        return null;
+    }
+    var out = [];
+    for (var i = 0; i < ring.length; i++) {
+        var lng = parseFloat(ring[i][0]);
+        var lat = parseFloat(ring[i][1]);
+        if (!isFinite(lng) || !isFinite(lat)) {
+            return null;
+        }
+        out.push([lng, lat]);
+    }
+    while (out.length >= 2) {
+        var a = out[0];
+        var b = out[out.length - 1];
+        if (a[0] === b[0] && a[1] === b[1]) {
+            out.pop();
+        } else {
+            break;
+        }
+    }
+    if (out.length < 3) {
+        return null;
+    }
+    var closed = out.slice();
+    closed.push(closed[0]);
+    return closed;
+}
+
+function normalizePolygonCoordinatesLngLat(polyCoords) {
+    if (!polyCoords || !polyCoords.length) {
+        return null;
+    }
+    var rings = [];
+    for (var r = 0; r < polyCoords.length; r++) {
+        var ring = normalizeExteriorRingLngLat(polyCoords[r]);
+        if (!ring) {
+            return null;
+        }
+        rings.push(ring);
+    }
+    return rings;
+}
+
+function normalizeMultiPolygonCoordinatesLngLat(multiCoords) {
+    if (!multiCoords || !multiCoords.length) {
+        return null;
+    }
+    var polys = [];
+    for (var p = 0; p < multiCoords.length; p++) {
+        var rings = normalizePolygonCoordinatesLngLat(multiCoords[p]);
+        if (!rings) {
+            return null;
+        }
+        polys.push(rings);
+    }
+    return polys.length ? polys : null;
+}
+
+function geometryFromGeojsonFragment(geom) {
+    if (!geom || !geom.type) {
+        return null;
+    }
+    if (geom.type === 'Polygon') {
+        var coords = normalizePolygonCoordinatesLngLat(geom.coordinates);
+        if (!coords) {
+            return null;
+        }
+        return { type: 'Polygon', coordinates: coords };
+    }
+    if (geom.type === 'MultiPolygon') {
+        var mc = normalizeMultiPolygonCoordinatesLngLat(geom.coordinates);
+        if (!mc) {
+            return null;
+        }
+        return { type: 'MultiPolygon', coordinates: mc };
+    }
+    if (geom.type === 'GeometryCollection' && geom.geometries) {
+        var collected = [];
+        for (var i = 0; i < geom.geometries.length; i++) {
+            var inner = geometryFromGeojsonFragment(geom.geometries[i]);
+            if (!inner) {
+                continue;
+            }
+            if (inner.type === 'Polygon') {
+                collected.push(inner.coordinates);
+            } else if (inner.type === 'MultiPolygon') {
+                for (var j = 0; j < inner.coordinates.length; j++) {
+                    collected.push(inner.coordinates[j]);
+                }
+            }
+        }
+        if (collected.length === 0) {
+            return null;
+        }
+        if (collected.length === 1) {
+            return { type: 'Polygon', coordinates: collected[0] };
+        }
+        return { type: 'MultiPolygon', coordinates: collected };
+    }
+    return null;
+}
+
+function extractMappingAreaGeometryFromGeojson(root) {
+    if (!root || typeof root !== 'object') {
+        return null;
+    }
+    var nameHint = null;
+
+    if (root.type === 'FeatureCollection' && root.features) {
+        for (var fi = 0; fi < root.features.length; fi++) {
+            var got = extractMappingAreaGeometryFromGeojson(root.features[fi]);
+            if (got && got.geometry) {
+                return got;
+            }
+        }
+        return null;
+    }
+
+    if (root.type === 'Feature' && root.geometry) {
+        if (root.properties) {
+            nameHint = root.properties.name || root.properties.Name || root.properties.NAME;
+        }
+        var g = geometryFromGeojsonFragment(root.geometry);
+        if (g) {
+            return { geometry: g, nameHint: nameHint };
+        }
+        return null;
+    }
+
+    var direct = geometryFromGeojsonFragment(root);
+    if (direct) {
+        return { geometry: direct, nameHint: null };
+    }
+    return null;
+}
+
+function triggerImportMappingAreaGeojson() {
+    var input = document.getElementById('importMappingAreaGeojsonInput');
+    if (input) {
+        input.click();
+    }
+}
+
+function onMappingAreaGeojsonFileSelected(ev) {
+    var input = ev.target;
+    var file = input.files && input.files[0];
+    input.value = '';
+    if (!file) {
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            var json = JSON.parse(e.target.result);
+            var extracted = extractMappingAreaGeometryFromGeojson(json);
+            if (!extracted || !extracted.geometry) {
+                alert('Could not find a valid Polygon or MultiPolygon in the GeoJSON. Use WGS84 (longitude, latitude) and rings with at least three vertices.');
+                return;
+            }
+            stopDrawingPolygon();
+            if (typeof map !== 'undefined' && map) {
+                try {
+                    var tmpLayer = L.geoJSON(extracted.geometry);
+                    map.fitBounds(tmpLayer.getBounds(), { padding: [24, 24], maxZoom: 16 });
+                    map.removeLayer(tmpLayer);
+                } catch (errFit) {
+                    console.debug('fitBounds skipped:', errFit);
+                }
+            }
+            showPolygonForm(null, null, { nameHint: extracted.nameHint, geometry: extracted.geometry });
+        } catch (err) {
+            console.error(err);
+            alert('Invalid GeoJSON file.');
+        }
+    };
+    reader.onerror = function() {
+        alert('Could not read the file.');
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
 // Show polygon form
-function showPolygonForm(areaId, coordinates) {
+function showPolygonForm(areaId, coordinates, options) {
+    options = options || {};
     var form = document.getElementById('polygonForm');
     var nameInput = document.getElementById('polygonName');
     var formTitle = document.querySelector('#polygonForm h6');
@@ -2597,14 +2764,32 @@ function showPolygonForm(areaId, coordinates) {
                 });
             }
             if (formTitle) formTitle.textContent = 'Edit Polygon Details';
+            if (polygon.mappingAreaData.geometry) {
+                currentMappingAreaGeometry = JSON.parse(JSON.stringify(polygon.mappingAreaData.geometry));
+            } else {
+                currentMappingAreaGeometry = null;
+            }
         }
-        currentEditingPolygonCoordinates = coordinates;
+        currentEditingPolygonCoordinates = null;
     } else {
         // Creating new polygon
-        nameInput.value = '';
+        if (options.nameHint != null && String(options.nameHint).trim() !== '') {
+            nameInput.value = String(options.nameHint).trim();
+        } else {
+            nameInput.value = '';
+        }
         document.getElementById('polygonUsers').selectedIndex = -1;
         if (formTitle) formTitle.textContent = 'New Polygon Details';
-        currentDrawingPolygonCoordinates = coordinates;
+        if (options.geometry) {
+            currentMappingAreaGeometry = options.geometry;
+            currentDrawingPolygonCoordinates = null;
+        } else if (coordinates) {
+            currentDrawingPolygonCoordinates = coordinates;
+            currentMappingAreaGeometry = { type: 'Polygon', coordinates: [coordinates] };
+        } else {
+            currentDrawingPolygonCoordinates = null;
+            currentMappingAreaGeometry = null;
+        }
     }
     
     form.style.display = 'block';
@@ -2618,6 +2803,7 @@ function hidePolygonForm() {
     document.getElementById('polygonUsers').selectedIndex = -1;
     currentDrawingPolygonCoordinates = null;
     currentEditingPolygonCoordinates = null;
+    currentMappingAreaGeometry = null;
 }
 
 // Cancel polygon form
@@ -2633,9 +2819,10 @@ function cancelPolygonForm() {
     }
 }
 
-// Variables to store coordinates
+// Variables to store coordinates / GeoJSON geometry for mapping areas
 var currentDrawingPolygonCoordinates = null;
 var currentEditingPolygonCoordinates = null;
+var currentMappingAreaGeometry = null;
 
 // Load users for allocation dropdown
 function loadUsersForAllocation() {
@@ -2658,6 +2845,10 @@ document.addEventListener('DOMContentLoaded', function() {
             saveMappingArea();
         });
     }
+    var geoInput = document.getElementById('importMappingAreaGeojsonInput');
+    if (geoInput) {
+        geoInput.addEventListener('change', onMappingAreaGeojsonFileSelected);
+    }
 });
 
 // Save mapping area
@@ -2673,26 +2864,38 @@ function saveMappingArea() {
         return;
     }
     
-    var coordinates = currentDrawingPolygonCoordinates || currentEditingPolygonCoordinates;
-    if (!coordinates || coordinates.length < 3) {
-        alert('Invalid polygon coordinates.');
+    var geometry = currentMappingAreaGeometry;
+    if (!geometry) {
+        var coordinates = currentDrawingPolygonCoordinates || currentEditingPolygonCoordinates;
+        if (!coordinates || coordinates.length < 3) {
+            alert('Invalid polygon coordinates.');
+            return;
+        }
+        geometry = { type: 'Polygon', coordinates: [coordinates] };
+    } else if (geometry.type === 'Polygon') {
+        var polyCoords = geometry.coordinates;
+        if (!polyCoords || !polyCoords[0] || polyCoords[0].length < 4) {
+            alert('Invalid polygon geometry.');
+            return;
+        }
+    } else if (geometry.type === 'MultiPolygon') {
+        if (!geometry.coordinates || !geometry.coordinates.length) {
+            alert('Invalid multipolygon geometry.');
+            return;
+        }
+    } else {
+        alert('Invalid geometry.');
         return;
     }
-    
-    console.debug('Using polygon coordinates:', coordinates);
-    
+
+    console.debug('Using mapping area geometry:', geometry);
+
     // Get selected users
     var userSelect = document.getElementById('polygonUsers');
     var selectedUsers = Array.from(userSelect.selectedOptions).map(function(option) {
         return parseInt(option.value);
     });
-    
-    // Prepare geometry in GeoJSON format
-    var geometry = {
-        type: 'Polygon',
-        coordinates: [coordinates] // GeoJSON Polygon format
-    };
-    
+
     var data = {
         name: name,
         geometry: geometry,

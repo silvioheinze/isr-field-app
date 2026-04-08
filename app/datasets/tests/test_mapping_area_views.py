@@ -3,7 +3,7 @@ import json
 from unittest import mock
 
 from django.contrib.auth.models import User
-from django.contrib.gis.geos import Polygon
+from django.contrib.gis.geos import MultiPolygon, Polygon
 from django.db.utils import ProgrammingError
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -38,6 +38,9 @@ class MappingAreaViewsTests(TestCase):
             (10.0, 10.0),
         ]
         return Polygon(coords, srid=4326)
+
+    def _geos_multipolygon(self):
+        return MultiPolygon(self._geos_polygon(), srid=4326)
 
     def _geojson_polygon(self):
         coords = [
@@ -78,7 +81,7 @@ class MappingAreaViewsTests(TestCase):
         area = MappingArea.objects.create(
             dataset=self.dataset,
             name='Area 1',
-            geometry=self._geos_polygon(),
+            geometry=self._geos_multipolygon(),
             created_by=self.owner,
         )
         area.allocated_users.add(self.other_user)
@@ -94,7 +97,7 @@ class MappingAreaViewsTests(TestCase):
         self.assertEqual(area_data['id'], area.id)
         self.assertEqual(area_data['name'], 'Area 1')
         self.assertEqual(set(area_data['allocated_users']), {self.other_user.id})
-        self.assertEqual(area_data['geometry']['type'], 'Polygon')
+        self.assertEqual(area_data['geometry']['type'], 'MultiPolygon')
 
     def test_list_handles_database_error(self):
         with self.assertLogs('datasets.views.mapping_area_views', level='WARNING') as cap_logs:
@@ -173,11 +176,11 @@ class MappingAreaViewsTests(TestCase):
         self.assertEqual(MappingArea.objects.count(), 1)
         mapping_area = MappingArea.objects.get()
         self.assertEqual(mapping_area.name, 'Persisted Area')
-        self.assertAlmostEqual(
-            mapping_area.geometry.area,
-            Polygon(self._geojson_polygon()['coordinates'][0], srid=4326).area,
-            places=6,
+        expected_mp = MultiPolygon(
+            Polygon(self._geojson_polygon()['coordinates'][0], srid=4326),
+            srid=4326,
         )
+        self.assertAlmostEqual(mapping_area.geometry.area, expected_mp.area, places=6)
         self.assertEqual(list(mapping_area.allocated_users.values_list('id', flat=True)), [self.other_user.id])
 
     def test_non_owner_cannot_create_mapping_area(self):
@@ -198,7 +201,7 @@ class MappingAreaViewsTests(TestCase):
         area = MappingArea.objects.create(
             dataset=self.dataset,
             name='Original Area',
-            geometry=self._geos_polygon(),
+            geometry=self._geos_multipolygon(),
             created_by=self.owner,
         )
         area.allocated_users.add(self.other_user)
@@ -238,7 +241,7 @@ class MappingAreaViewsTests(TestCase):
         area = MappingArea.objects.create(
             dataset=self.dataset,
             name='Original Area',
-            geometry=self._geos_polygon(),
+            geometry=self._geos_multipolygon(),
             created_by=self.owner,
         )
 
@@ -264,7 +267,7 @@ class MappingAreaViewsTests(TestCase):
         area = MappingArea.objects.create(
             dataset=self.dataset,
             name='To Delete',
-            geometry=self._geos_polygon(),
+            geometry=self._geos_multipolygon(),
             created_by=self.owner,
         )
 
@@ -277,7 +280,7 @@ class MappingAreaViewsTests(TestCase):
         area = MappingArea.objects.create(
             dataset=self.dataset,
             name='Protected',
-            geometry=self._geos_polygon(),
+            geometry=self._geos_multipolygon(),
             created_by=self.owner,
         )
 
@@ -287,4 +290,30 @@ class MappingAreaViewsTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(MappingArea.objects.count(), 1)
 
+    def test_owner_can_create_mapping_area_multipolygon_geojson(self):
+        payload = {
+            'name': 'Two parts',
+            'geometry': {
+                'type': 'MultiPolygon',
+                'coordinates': [
+                    [
+                        [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
+                    ],
+                    [
+                        [[2.0, 2.0], [2.0, 3.0], [3.0, 3.0], [3.0, 2.0], [2.0, 2.0]],
+                    ],
+                ],
+            },
+        }
+        response = self.owner_client.post(
+            self.create_url,
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        mapping_area = MappingArea.objects.get()
+        self.assertEqual(mapping_area.geometry.geom_type, 'MultiPolygon')
+        self.assertEqual(len(mapping_area.geometry), 2)
 

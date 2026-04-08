@@ -2,7 +2,7 @@ import json
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.contrib.gis.geos import GEOSException, Polygon
+from django.contrib.gis.geos import GEOSException, MultiPolygon, Polygon
 from django.db import OperationalError, ProgrammingError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -195,20 +195,15 @@ def mapping_area_create_view(request, dataset_id):
     if not name:
         return JsonResponse({'success': False, 'error': 'Name is required'}, status=400)
     
-    if not geometry_data or geometry_data.get('type') != 'Polygon':
+    if not geometry_data or geometry_data.get('type') not in ('Polygon', 'MultiPolygon'):
         return JsonResponse({'success': False, 'error': 'Invalid geometry'}, status=400)
     
-    coordinates = geometry_data.get('coordinates', [])
-    if not coordinates or not coordinates[0] or len(coordinates[0]) < 4:
-        return JsonResponse({'success': False, 'error': 'Polygon requires at least four points.'}, status=400)
-    
     try:
-        exterior_ring = coordinates[0]
-        polygon_coords = [(float(coord[0]), float(coord[1])) for coord in exterior_ring]
-        if polygon_coords[0] != polygon_coords[-1]:
-            polygon_coords.append(polygon_coords[0])
-        polygon = Polygon(polygon_coords, srid=4326)
-    except (TypeError, ValueError, GEOSException) as exc:
+        geos_multipolygon = multipolygon_from_geojson_dict(geometry_data)
+    except ValueError as exc:
+        logger.warning("Invalid mapping area geometry for dataset %s: %s", dataset.id, exc)
+        return JsonResponse({'success': False, 'error': 'Invalid polygon coordinates.'}, status=400)
+    except (TypeError, GEOSException) as exc:
         logger.exception("Invalid polygon data for dataset %s: %s", dataset.id, exc)
         return JsonResponse({'success': False, 'error': 'Invalid polygon coordinates.'}, status=400)
     
@@ -216,7 +211,7 @@ def mapping_area_create_view(request, dataset_id):
         mapping_area = MappingArea.objects.create(
             dataset=dataset,
             name=name,
-            geometry=polygon,
+            geometry=geos_multipolygon,
             created_by=request.user
         )
         
@@ -287,19 +282,14 @@ def mapping_area_update_view(request, dataset_id, area_id):
         mapping_area.name = name.strip()
     
     if geometry_data:
-        if geometry_data.get('type') != 'Polygon':
+        if geometry_data.get('type') not in ('Polygon', 'MultiPolygon'):
             return JsonResponse({'success': False, 'error': 'Invalid geometry'}, status=400)
-        coordinates = geometry_data.get('coordinates', [])
-        if not coordinates or not coordinates[0] or len(coordinates[0]) < 4:
-            return JsonResponse({'success': False, 'error': 'Polygon requires at least four points.'}, status=400)
         try:
-            exterior_ring = coordinates[0]
-            polygon_coords = [(float(coord[0]), float(coord[1])) for coord in exterior_ring]
-            if polygon_coords[0] != polygon_coords[-1]:
-                polygon_coords.append(polygon_coords[0])
-            polygon = Polygon(polygon_coords, srid=4326)
-            mapping_area.geometry = polygon
-        except (TypeError, ValueError, GEOSException) as exc:
+            mapping_area.geometry = multipolygon_from_geojson_dict(geometry_data)
+        except ValueError as exc:
+            logger.warning("Invalid mapping area geometry while updating area %s: %s", mapping_area.id, exc)
+            return JsonResponse({'success': False, 'error': 'Invalid polygon coordinates.'}, status=400)
+        except (TypeError, GEOSException) as exc:
             logger.exception("Invalid polygon data while updating mapping area %s: %s", mapping_area.id, exc)
             return JsonResponse({'success': False, 'error': 'Invalid polygon coordinates.'}, status=400)
     

@@ -517,10 +517,10 @@ class ExportTask(models.Model):
 
 
 class MappingArea(models.Model):
-    """Mapping area defined as a polygon on the map"""
+    """Mapping area as one or more polygons (GeoJSON Polygon or MultiPolygon)."""
     dataset = models.ForeignKey(DataSet, on_delete=models.CASCADE, related_name='mapping_areas')
     name = models.CharField(max_length=255)
-    geometry = gis_models.PolygonField(srid=4326)  # WGS84 coordinate system
+    geometry = gis_models.MultiPolygonField(srid=4326)  # WGS84; single-part areas use one polygon
     allocated_users = models.ManyToManyField(User, related_name='allocated_mapping_areas', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

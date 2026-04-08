@@ -1,5 +1,5 @@
 from django.contrib.auth.models import Group, User
-from django.contrib.gis.geos import Point, Polygon
+from django.contrib.gis.geos import MultiPolygon, Point, Polygon
 from django.test import Client, TestCase
 from django.urls import reverse
 
@@ -34,7 +34,7 @@ class DatasetMappingAreaAccessTests(TestCase):
         self.mapping_area = MappingArea.objects.create(
             dataset=self.dataset,
             name='Central Area',
-            geometry=polygon,
+            geometry=MultiPolygon(polygon, srid=4326),
             created_by=self.owner,
         )
 

@@ -1,7 +1,7 @@
 from django.test import TestCase, Client
 from django.contrib.auth.models import User, Group
 from django.urls import reverse
-from django.contrib.gis.geos import Point, Polygon
+from django.contrib.gis.geos import MultiPolygon, Point, Polygon
 from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO
 
@@ -190,7 +190,7 @@ class DatasetCopyViewTests(TestCase):
         self.mapping_area = MappingArea.objects.create(
             dataset=self.original_dataset,
             name='Test Area',
-            geometry=polygon,
+            geometry=MultiPolygon(polygon, srid=4326),
             created_by=self.owner,
         )
         self.mapping_area.allocated_users.add(self.shared_user)

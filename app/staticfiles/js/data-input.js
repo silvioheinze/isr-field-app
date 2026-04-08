@@ -2129,6 +2129,8 @@ function toggleMappingAreas() {
         stopDrawingPolygon();
         stopEditingPolygon();
         clearSelectedPolygon();
+        drawMappingAreasOnMap([]);
+        hidePolygonForm();
     }
 }
 

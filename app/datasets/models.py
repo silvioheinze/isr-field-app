@@ -544,7 +544,7 @@ class MappingArea(models.Model):
             return 0
     
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['name']
         verbose_name_plural = "Mapping Areas" 
 
 

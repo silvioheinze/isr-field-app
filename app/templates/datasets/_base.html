@@ -238,7 +238,9 @@
                             <li><hr class="dropdown-divider"></li>
                             {% if user.is_superuser %}
                             <li><a class="dropdown-item" href="{% url 'user_management' %}">Users</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             {% endif %}
+                            <li><a class="dropdown-item" href="{% url 'documentation' %}">Documentation</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{% url 'logout' %}">Logout</a></li>
                         </ul>
@@ -284,7 +286,7 @@
     <!-- Footer -->
     <footer class="bg-light text-center text-muted py-2">
         <div class="container">
-            <p class="mb-0">&copy; 2025 ISR Field App.</p>
+            <p class="mb-0">&copy; 2026 ÖAW ISR</p>
         </div>
     </footer>
 

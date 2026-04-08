@@ -131,6 +131,12 @@ def dashboard_view(request):
     })
 
 
+@login_required
+def documentation_view(request):
+    """In-app user documentation (feature overview)."""
+    return render(request, 'datasets/documentation.html')
+
+
 def register_view(request):
     """User registration view"""
     if request.method == 'POST':

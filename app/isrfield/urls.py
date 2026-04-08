@@ -32,6 +32,7 @@ urlpatterns = [
     path('password-reset-complete/', datasets_views.password_reset_complete_view, name='password_reset_complete'),
     path('register/', datasets_views.register_view, name='register'),
     path('profile/', datasets_views.profile_view, name='profile'),
+    path('documentation/', datasets_views.documentation_view, name='documentation'),
     path('users/', datasets_views.user_management_view, name='user_management'),
     path('users/create/', datasets_views.create_user_view, name='create_user'),
     path('users/edit/<int:user_id>/', datasets_views.edit_user_view, name='edit_user'),

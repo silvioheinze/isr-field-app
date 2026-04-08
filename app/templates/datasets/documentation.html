@@ -1,0 +1,134 @@
+{% extends 'datasets/_base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "Documentation" %} - ISR Field{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-lg-3 mb-4 mb-lg-0">
+            <div class="card shadow-sm position-sticky" style="top: 1rem;">
+                <div class="card-header fw-semibold small">{% trans "On this page" %}</div>
+                <div class="list-group list-group-flush small">
+                    <a class="list-group-item list-group-item-action" href="#intro">{% trans "Introduction" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#datasets">{% trans "Datasets" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#sharing">{% trans "Sharing and access" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#mapping-areas">{% trans "Mapping areas" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#fields">{% trans "Fields and configuration" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#data-input">{% trans "Data input" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#import-export">{% trans "Import and export" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#typologies">{% trans "Typologies" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#files">{% trans "Files and images" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#admin-users">{% trans "Users and administration" %}</a>
+                    <a class="list-group-item list-group-item-action" href="#account">{% trans "Account and authentication" %}</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-9">
+            <h1 class="h2 mb-3">{% trans "ISR Field documentation" %}</h1>
+            <p class="text-muted lead fs-6">{% trans "Overview of features available in the application. Use the navigation on the left to jump to a section." %}</p>
+
+            <section id="intro" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Introduction" %}</h2>
+                <p>{% trans "ISR Field is a web application for managing spatial datasets: geometry points on a map, structured data entries per point, imports and exports, and collaboration with controlled access." %}</p>
+                <p>{% trans "After signing in, the Dashboard lists datasets you own, that are shared with you, or that are marked public. Use the top navigation to open Datasets or Typologies." %}</p>
+            </section>
+
+            <section id="datasets" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Datasets" %}</h2>
+                <ul>
+                    <li>{% trans "Create datasets from the dashboard or the dataset list (if your role allows creating datasets)." %}</li>
+                    <li>{% trans "Each dataset has a detail page with shortcuts to settings, data input, entries, import/export, and more." %}</li>
+                    <li>{% trans "Dataset settings let you rename the dataset, adjust options (e.g. multiple entries per geometry, mapping areas, anonymous data input), and configure default map position and zoom." %}</li>
+                    <li>{% trans "You can copy a dataset to duplicate its structure and data according to the copy workflow." %}</li>
+                    <li>{% trans "Public datasets are visible to all signed-in users; private datasets are only visible to the owner and invited users or groups." %}</li>
+                    <li>{% trans "Clear data removes geometry and entries from a dataset—use with care." %}</li>
+                </ul>
+            </section>
+
+            <section id="sharing" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Sharing and access" %}</h2>
+                <ul>
+                    <li>{% trans "The dataset access page lets the owner share the dataset with individual users and with groups." %}</li>
+                    <li>{% trans "When mapping areas are used, you can restrict collaborators to specific mapping areas from this page (per user and per group)." %}</li>
+                    <li>{% trans "Transfer ownership moves the dataset to another user; only the owner (or an administrator) can do this." %}</li>
+                </ul>
+            </section>
+
+            <section id="mapping-areas" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Mapping areas" %}</h2>
+                <p>{% trans "Enable mapping areas in dataset settings. The dataset owner (and administrators) can draw polygons on the data input map, name them, and allocate users to each area." %}</p>
+                <ul>
+                    <li>{% trans "Access limits can be set in two ways: on the dataset access screen (per user/group), or by allocating users on each mapping area in the mapping-areas panel." %}</li>
+                    <li>{% trans "Collaborators restricted to a mapping area only see geometry points and entries that fall inside their allowed areas." %}</li>
+                    <li>{% trans "Collaborators can see read-only outlines of their allowed areas on the map; they cannot select or edit those polygons." %}</li>
+                    <li>{% trans "Only the dataset owner (and administrators) can open the full mapping-areas tools to draw, edit, or delete polygons." %}</li>
+                </ul>
+            </section>
+
+            <section id="fields" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Fields and configuration" %}</h2>
+                <ul>
+                    <li>{% trans "Field configuration defines which columns appear on data entry: labels, types (text, number, choice, typology-based fields, etc.), required flags, order, and help text." %}</li>
+                    <li>{% trans "Custom fields add additional structured attributes beyond the standard set." %}</li>
+                    <li>{% trans "Linking a field to a typology provides standardized dropdown choices from that typology." %}</li>
+                    <li>{% trans "Non-editable fields can be shown but not changed during data entry." %}</li>
+                </ul>
+            </section>
+
+            <section id="data-input" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Data input" %}</h2>
+                <ul>
+                    <li>{% trans "The data input view combines an interactive map with a panel to edit geometry details and yearly (or multiple) entries." %}</li>
+                    <li>{% trans "Add points, focus the map, and use map controls (zoom, go to location, etc.) as provided on the page." %}</li>
+                    <li>{% trans "If enabled for the dataset, multiple entries can exist per geometry (e.g. one row per year)." %}</li>
+                    <li>{% trans "Anonymous data input allows contributors to use a special link without an account; those sessions are scoped to their own contributions." %}</li>
+                </ul>
+            </section>
+
+            <section id="import-export" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Import and export" %}</h2>
+                <ul>
+                    <li>{% trans "CSV import walks you through column mapping and coordinate detection before data is written to the dataset." %}</li>
+                    <li>{% trans "CSV export produces a spreadsheet with your field columns; options may include year-based layouts." %}</li>
+                    <li>{% trans "File export can package attached files; large exports may use a background task and a download link when ready." %}</li>
+                </ul>
+            </section>
+
+            <section id="typologies" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Typologies" %}</h2>
+                <ul>
+                    <li>{% trans "Typologies define reusable code lists (categories, codes, labels) for consistent classification." %}</li>
+                    <li>{% trans "Create and edit typologies from the Typologies section; import or export typology entries from CSV when needed." %}</li>
+                    <li>{% trans "Public typologies are visible to all users; private typologies are limited to their creator (and administrators)." %}</li>
+                </ul>
+            </section>
+
+            <section id="files" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Files and images" %}</h2>
+                <ul>
+                    <li>{% trans "You can attach images and files to entries where the dataset supports it; downloads respect the same access rules as the entry and geometry." %}</li>
+                </ul>
+            </section>
+
+            <section id="admin-users" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Users and administration" %}</h2>
+                <ul>
+                    <li>{% trans "Staff and superuser roles control who can reach Django admin and who can manage users and groups in the application UI." %}</li>
+                    <li>{% trans "User management (where available) lets administrators create users, reset passwords, and assign groups." %}</li>
+                    <li>{% trans "Creating datasets and typologies may be limited to staff or administrators depending on site policy." %}</li>
+                </ul>
+            </section>
+
+            <section id="account" class="mb-5">
+                <h2 class="h4 border-bottom pb-2">{% trans "Account and authentication" %}</h2>
+                <ul>
+                    <li>{% trans "Sign in with your email and password; register for a new account if self-registration is enabled." %}</li>
+                    <li>{% trans "Your profile page is where you can update email and change your password." %}</li>
+                    <li>{% trans "Password reset uses email links if the feature is configured by the server administrator." %}</li>
+                </ul>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

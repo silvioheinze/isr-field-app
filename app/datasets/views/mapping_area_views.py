@@ -96,7 +96,7 @@ def mapping_area_outlines_view(request, dataset_id):
         return JsonResponse({'success': True, 'mapping_areas': []})
 
     try:
-        areas_qs = MappingArea.objects.filter(dataset=dataset, id__in=allowed_ids)
+        areas_qs = MappingArea.objects.filter(dataset=dataset, id__in=allowed_ids).order_by('name')
     except (ProgrammingError, OperationalError) as db_exc:
         logger.warning(
             "Database error while loading mapping area outlines for dataset %s: %s",
@@ -134,7 +134,7 @@ def mapping_area_list_view(request, dataset_id):
         return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
     
     try:
-        mapping_areas = list(MappingArea.objects.filter(dataset=dataset))
+        mapping_areas = list(MappingArea.objects.filter(dataset=dataset).order_by('name'))
     except (ProgrammingError, OperationalError) as db_exc:
         logger.warning(
             "Database error while loading mapping areas for dataset %s: %s",

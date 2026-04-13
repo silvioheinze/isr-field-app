@@ -203,6 +203,7 @@ class DataInputJavaScriptTestCase(TestCase):
         geometry_data = data['geometry']
         self.assertEqual(geometry_data['id'], self.geometry.id)
         self.assertEqual(geometry_data['id_kurz'], 'TEST001')
+        self.assertEqual(geometry_data['created_by_user_id'], self.user.id)
         self.assertIn('entries', geometry_data)
         
         # Check entries structure
@@ -288,6 +289,7 @@ class DataInputJavaScriptTestCase(TestCase):
         self.assertIn('lat', point)
         self.assertIn('lng', point)
         self.assertIn('user', point)
+        self.assertEqual(point['created_by_user_id'], self.user.id)
         
         # Should not contain entries or field data
         self.assertNotIn('entries', point)
@@ -416,7 +418,7 @@ class DataInputJavaScriptTestCase(TestCase):
         self.assertIn('geometry', data)
         
         geometry = data['geometry']
-        required_fields = ['id', 'id_kurz', 'address', 'lat', 'lng', 'user', 'entries']
+        required_fields = ['id', 'id_kurz', 'address', 'lat', 'lng', 'user', 'created_by_user_id', 'entries']
         for field in required_fields:
             self.assertIn(field, geometry, f"Required field {field} missing from geometry data")
         
@@ -573,3 +575,47 @@ class DataInputJavaScriptTestCase(TestCase):
         # This ensures the property name matches what JavaScript expects
         self.assertIn('non_editable', non_editable_data, "non_editable property should be in JSON")
         self.assertEqual(non_editable_data['non_editable'], True, "non_editable should be True in JSON")
+
+    def test_owner_can_delete_geometry_via_post(self):
+        """Dataset owner can delete a geometry; it is removed from the database."""
+        client = Client()
+        client.force_login(self.user)
+        gid = self.geometry.id
+        url = reverse('geometry_delete', kwargs={'geometry_id': gid})
+        response = client.post(url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get('success'))
+        self.assertFalse(DataGeometry.objects.filter(pk=gid).exists())
+
+    def test_shared_user_cannot_delete_others_geometry(self):
+        """Collaborators cannot delete geometries created by another user."""
+        other = User.objects.create_user(username='collab', email='c@example.com', password='pass')
+        self.dataset.shared_with.add(other)
+        client = Client()
+        client.force_login(other)
+        gid = self.geometry.id
+        url = reverse('geometry_delete', kwargs={'geometry_id': gid})
+        response = client.post(url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(DataGeometry.objects.filter(pk=gid).exists())
+
+    def test_creator_can_delete_own_geometry(self):
+        """A logged-in user can delete a geometry they created."""
+        from django.contrib.gis.geos import Point
+
+        collab = User.objects.create_user(username='collab2', email='c2@example.com', password='pass')
+        self.dataset.shared_with.add(collab)
+        own = DataGeometry.objects.create(
+            dataset=self.dataset,
+            id_kurz='OWN001',
+            address='Own point',
+            geometry=Point(16.0, 48.1),
+            user=collab,
+        )
+        client = Client()
+        client.force_login(collab)
+        url = reverse('geometry_delete', kwargs={'geometry_id': own.id})
+        response = client.post(url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get('success'))
+        self.assertFalse(DataGeometry.objects.filter(pk=own.id).exists())

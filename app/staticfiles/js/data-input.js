@@ -307,7 +307,73 @@ function showGeometryDetails(point) {
     detailsDiv.classList.add('active');
     generateEntriesTable(point);
     loadUploadedFiles();
+    updateDeleteGeometryButton();
     if (typeof adjustColumnLayout === 'function') adjustColumnLayout();
+}
+
+function updateDeleteGeometryButton() {
+    var btn = document.getElementById('deleteGeometryBtn');
+    if (!btn) return;
+    var uid = window.currentUserId;
+    var creatorId = currentPoint && currentPoint.created_by_user_id;
+    var isCreator = uid != null && creatorId != null &&
+        Number(creatorId) === Number(uid);
+    var canDelete = window.isDatasetOwner ||
+        (currentPoint && currentPoint.id != null && isCreator);
+    if (canDelete) {
+        btn.classList.remove('d-none');
+        btn.setAttribute('data-geometry-id', String(currentPoint.id));
+    } else {
+        btn.classList.add('d-none');
+        btn.removeAttribute('data-geometry-id');
+    }
+}
+
+function deleteCurrentGeometry() {
+    var btn = document.getElementById('deleteGeometryBtn');
+    if (!btn) return;
+    var uid = window.currentUserId;
+    var creatorId = currentPoint && currentPoint.created_by_user_id;
+    var isCreator = uid != null && creatorId != null &&
+        Number(creatorId) === Number(uid);
+    if (!window.isDatasetOwner && !isCreator) return;
+    var gid = btn.getAttribute('data-geometry-id');
+    if (!gid) return;
+    var msg = (window.translations && window.translations.deleteGeometryConfirm) ?
+        window.translations.deleteGeometryConfirm :
+        'Delete this geometry point and all its entries? This cannot be undone.';
+    if (!confirm(msg)) return;
+    var csrfEl = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (!csrfEl || !csrfEl.value) {
+        alert((window.translations && window.translations.deleteGeometryFailed) || 'Could not delete geometry.');
+        return;
+    }
+    fetch(window.location.origin + '/datasets/geometry/' + gid + '/delete/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'X-CSRFToken': csrfEl.value,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                return { ok: response.ok, data: data };
+            });
+        })
+        .then(function(result) {
+            if (result.ok && result.data && result.data.success) {
+                clearSelection();
+                loadMapData(true);
+            } else {
+                var err = (result.data && result.data.error) ? result.data.error :
+                    ((window.translations && window.translations.deleteGeometryFailed) || 'Could not delete geometry.');
+                alert(err);
+            }
+        })
+        .catch(function() {
+            alert((window.translations && window.translations.deleteGeometryFailed) || 'Could not delete geometry.');
+        });
 }
 
 // Global variable to track selected entry
@@ -1737,6 +1803,12 @@ function clearSelection() {
     // Adjust column layout
     if (typeof adjustColumnLayout === 'function') {
         adjustColumnLayout();
+    }
+
+    var deleteBtn = document.getElementById('deleteGeometryBtn');
+    if (deleteBtn) {
+        deleteBtn.classList.add('d-none');
+        deleteBtn.removeAttribute('data-geometry-id');
     }
 }
 

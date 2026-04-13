@@ -19,11 +19,18 @@
                 
                 <!-- Geometry Details Overlay/Inline -->
                 <div id="geometryDetails" class="geometry-details">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                         <h5 class="mb-0">{% trans "Geometry Details" %}</h5>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSelection()" title="{% trans 'Clear Selection' %}">
-                            <i class="bi bi-x-circle"></i> {% trans "Close" %}
-                        </button>
+                        <div class="d-flex align-items-center gap-2 ms-auto">
+                            {% if user.is_authenticated %}
+                            <button type="button" id="deleteGeometryBtn" class="btn btn-sm btn-outline-danger d-none" onclick="deleteCurrentGeometry()" title="{% trans 'Delete this geometry point' %}">
+                                <i class="bi bi-trash"></i> {% trans "Delete" %}
+                            </button>
+                            {% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSelection()" title="{% trans 'Clear Selection' %}">
+                                <i class="bi bi-x-circle"></i> {% trans "Close" %}
+                            </button>
+                        </div>
                     </div>
                     
                     <div id="entriesSection">
@@ -205,6 +212,7 @@
     console.log('window.allFields initialized:', window.allFields);
     window.allowMultipleEntries = {% if allow_multiple_entries %}true{% else %}false{% endif %};
     window.datasetId = {{ dataset.id }};
+    window.currentUserId = {% if user.is_authenticated %}{{ user.id }}{% else %}null{% endif %};
     window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
     {# Only owner/superuser should load or draw mapping-area polygons; collaborators keep the flag false. #}
     window.enableMappingAreas = {% if enable_mapping_areas and user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
@@ -226,7 +234,9 @@
         'createEntry': '{% trans "Create New Entry" %}',
         'saveEntries': '{% trans "Save Changes" %}',
         'geolocationNotSupported': '{% trans "Geolocation is not supported by this browser." %}',
-        'geolocationError': '{% trans "Error getting your location: " %}'
+        'geolocationError': '{% trans "Error getting your location: " %}',
+        'deleteGeometryConfirm': '{% trans "Delete this geometry point and all its entries? This cannot be undone." %}',
+        'deleteGeometryFailed': '{% trans "Could not delete geometry." %}'
     };
 </script>
 {% endblock %}

@@ -87,6 +87,7 @@ urlpatterns = [
     path('typologies/<int:typology_id>/export/', datasets_views.typology_export_view, name='typology_export'),
     path('datasets/upload-files/', datasets_views.upload_files_view, name='upload_files'),
     path('datasets/geometry/<int:geometry_id>/files/', datasets_views.geometry_files_view, name='geometry_files'),
+    path('datasets/files/<int:file_id>/delete/confirm/', datasets_views.file_delete_view, name='file_delete'),
     path('datasets/files/<int:file_id>/delete/', datasets_views.delete_file_view, name='delete_file'),
     path('entries/save/', datasets_views.save_entries_view, name='save_entries'),
     # Mapping area URLs (outlines must be registered before the list path)

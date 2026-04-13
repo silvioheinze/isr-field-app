@@ -90,12 +90,13 @@ def file_delete_view(request, file_id):
     
     if request.method == 'POST':
         filename = file_obj.filename
+        entry_id = file_obj.entry_id
         file_obj.delete()
         messages.success(request, f'File "{filename}" deleted successfully!')
-        return redirect('entry_detail', entry_id=file_obj.entry.id)
-    
+        return redirect('entry_detail', entry_id=entry_id)
+
     return render(request, 'datasets/file_delete.html', {
-        'file': file_obj
+        'entry_file': file_obj
     })
 
 

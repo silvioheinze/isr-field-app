@@ -126,6 +126,7 @@ def geometry_details_view(request, geometry_id):
             'lat': geometry.geometry.y,
             'lng': geometry.geometry.x,
             'user': geometry.get_creator_display_name(),
+            'created_by_user_id': geometry.user_id,
             'entries': []
         }
         for entry in geometry.entries.all():
@@ -153,5 +154,28 @@ def geometry_details_view(request, geometry_id):
             'geometry': geometry_data
         })
         
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@login_required
+def geometry_delete_view(request, geometry_id):
+    """Delete a geometry point (dataset owner, superuser, or logged-in creator with area access)."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
+    try:
+        geometry = get_object_or_404(DataGeometry, pk=geometry_id)
+        dataset = geometry.dataset
+        if not dataset.can_access(request.user):
+            return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+        if request.user.is_superuser or request.user == dataset.owner:
+            geometry.delete()
+            return JsonResponse({'success': True})
+        if geometry.user_id == request.user.id:
+            if not dataset.user_has_geometry_access(request.user, geometry):
+                return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+            geometry.delete()
+            return JsonResponse({'success': True})
+        return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)

@@ -1143,7 +1143,8 @@ def dataset_map_data_view(request, dataset_id):
                     'address': geometry.address,
                     'lat': geometry.geometry.y,
                     'lng': geometry.geometry.x,
-                    'user': geometry.get_creator_display_name()
+                    'user': geometry.get_creator_display_name(),
+                    'created_by_user_id': geometry.user_id,
                 }
                 map_data.append(map_point)
             except Exception:

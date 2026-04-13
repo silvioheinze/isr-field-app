@@ -70,6 +70,7 @@ urlpatterns = [
     path('datasets/<int:dataset_id>/fields/', datasets_views.dataset_fields_view, name='dataset_fields'),
     path('datasets/<int:dataset_id>/map-data/', datasets_views.dataset_map_data_view, name='dataset_map_data'),
     path('datasets/geometry/<int:geometry_id>/details/', datasets_views.geometry_details_view, name='geometry_details'),
+    path('datasets/geometry/<int:geometry_id>/delete/', datasets_views.geometry_delete_view, name='geometry_delete'),
     path('datasets/<int:dataset_id>/clear-data/', datasets_views.dataset_clear_data_view, name='dataset_clear_data'),
     path('datasets/<int:dataset_id>/geometries/create/', datasets_views.geometry_create_view, name='geometry_create'),
     path('entries/<int:entry_id>/edit/', datasets_views.entry_edit_view, name='entry_edit'),

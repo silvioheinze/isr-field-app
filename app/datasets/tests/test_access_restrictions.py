@@ -184,6 +184,38 @@ class DatasetMappingAreaAccessTests(TestCase):
         self.assertEqual(data['mapping_areas'][0]['id'], self.mapping_area.id)
         self.assertEqual(data['mapping_areas'][0]['geometry']['type'], 'Polygon')
 
+    def test_collaborator_mapping_area_outlines_endpoint_returns_multipolygon(self):
+        """Outlines API returns GeoJSON MultiPolygon when the area has multiple parts."""
+        poly_a = Polygon(
+            ((-0.2, -0.2), (-0.2, -0.15), (-0.15, -0.15), (-0.15, -0.2), (-0.2, -0.2)),
+            srid=4326,
+        )
+        poly_b = Polygon(
+            ((0.15, 0.15), (0.15, 0.2), (0.2, 0.2), (0.2, 0.15), (0.15, 0.15)),
+            srid=4326,
+        )
+        multi_area = MappingArea.objects.create(
+            dataset=self.dataset,
+            name='Two-part area',
+            geometry=MultiPolygon(poly_a, poly_b, srid=4326),
+            created_by=self.owner,
+        )
+        DatasetUserMappingArea.objects.create(
+            dataset=self.dataset,
+            user=self.user,
+            mapping_area=multi_area,
+        )
+        url = reverse('mapping_area_outlines', args=[self.dataset.id])
+        response = self.user_client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(len(data['mapping_areas']), 1)
+        self.assertEqual(data['mapping_areas'][0]['id'], multi_area.id)
+        geom = data['mapping_areas'][0]['geometry']
+        self.assertEqual(geom['type'], 'MultiPolygon')
+        self.assertEqual(len(geom['coordinates']), 2)
+
     def test_owner_mapping_area_outlines_endpoint_returns_empty(self):
         """Owners use the full mapping-areas list API; outlines stay empty."""
         url = reverse('mapping_area_outlines', args=[self.dataset.id])

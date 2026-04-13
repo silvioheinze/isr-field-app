@@ -2059,21 +2059,19 @@ function drawCollaboratorMappingAreaOutlines(areas) {
     clearCollaboratorMappingAreaOutlines();
     if (!map || !areas || !areas.length) return;
     areas.forEach(function(area) {
-        if (!area.geometry || !area.geometry.coordinates) return;
-        var coordinates = area.geometry.coordinates[0];
-        var latlngs = coordinates.map(function(coord) {
-            return [coord[1], coord[0]];
-        });
-        var polygon = L.polygon(latlngs, {
-            color: '#0f766e',
-            weight: 2,
-            dashArray: '8 6',
-            opacity: 0.95,
-            fillColor: '#14b8a6',
-            fillOpacity: 0.12,
-            interactive: false
+        if (!area.geometry || !area.geometry.type) return;
+        if (area.geometry.type !== 'Polygon' && area.geometry.type !== 'MultiPolygon') return;
+        var gj = L.geoJSON(area.geometry, {
+            interactive: false,
+            style: {
+                color: '#ffc107',
+                weight: 2,
+                opacity: 0.8,
+                fillColor: '#ffc107',
+                fillOpacity: 0.2
+            }
         }).addTo(map);
-        collaboratorMappingAreaPolygons.push(polygon);
+        collaboratorMappingAreaPolygons.push(gj);
     });
 }
 

@@ -91,7 +91,7 @@ function initializeDataInput(typologyDataParam, fieldsData) {
 function initializeMap() {
     var defaultLat = (typeof window.mapDefaultLat === 'number') ? window.mapDefaultLat : 48.2082;
     var defaultLng = (typeof window.mapDefaultLng === 'number') ? window.mapDefaultLng : 16.3738;
-    var defaultZoom = (typeof window.mapDefaultZoom === 'number') ? Math.max(1, Math.min(18, window.mapDefaultZoom)) : 11;
+    var defaultZoom = (typeof window.mapDefaultZoom === 'number') ? Math.max(1, Math.min(20, window.mapDefaultZoom)) : 11;
     map = L.map('map', {
         zoomControl: false,
         scrollWheelZoom: false,
@@ -99,11 +99,16 @@ function initializeMap() {
         boxZoom: false,
         keyboard: false,
         dragging: true,
-        touchZoom: true
+        touchZoom: true,
+        minZoom: 1,
+        maxZoom: 20
     }).setView([defaultLat, defaultLng], defaultZoom);
     
+    // OSM tiles are native to ~19; zoom 20 uses Leaflet overzoom
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 20,
+        maxNativeZoom: 19
     }).addTo(map);
 
     map.on('click', function(e) {

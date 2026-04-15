@@ -4,6 +4,7 @@ import uuid
 from django.contrib.auth.models import Group, User
 from django.contrib.gis.db import models as gis_models
 from django.contrib.gis.geos import GEOSException, Point
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
@@ -32,7 +33,12 @@ class DataSet(models.Model):
     anonymous_access_token = models.CharField(max_length=64, unique=True, null=True, blank=True, help_text="Secret token for anonymous access URL")
     map_default_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center latitude when opening data input")
     map_default_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center longitude when opening data input")
-    map_default_zoom = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Default map zoom level (1–18) when opening data input")
+    map_default_zoom = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Default map zoom level (1–20) when opening data input",
+        validators=[MinValueValidator(1), MaxValueValidator(20)],
+    )
 
     def __str__(self):
         return self.name

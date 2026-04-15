@@ -252,7 +252,7 @@ def dataset_edit_view(request, dataset_id):
                 dataset.map_default_lat = float(map_default_lat) if map_default_lat else None
                 dataset.map_default_lng = float(map_default_lng) if map_default_lng else None
                 z = int(map_default_zoom) if map_default_zoom else None
-                dataset.map_default_zoom = max(1, min(18, z)) if z is not None else None
+                dataset.map_default_zoom = max(1, min(20, z)) if z is not None else None
             except (ValueError, TypeError, AttributeError):
                 pass
             dataset.save()

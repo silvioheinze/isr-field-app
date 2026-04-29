@@ -24,6 +24,9 @@ var drawnItems = null;
 var drawingPolygonPoints = [];
 var drawingClickHandler = null;
 
+/** Mapping-area outline stroke / label fill (must match GeoJSON style.color). */
+var COLLABORATOR_MAPPING_AREA_OUTLINE_COLOR = '#ffc107';
+
 function escapeHtml(value) {
     if (value === null || value === undefined) {
         return '';
@@ -103,7 +106,17 @@ function initializeMap() {
         minZoom: 1,
         maxZoom: 20
     }).setView([defaultLat, defaultLng], defaultZoom);
-    
+
+    map.getContainer().style.setProperty(
+        '--mapping-area-outline-color',
+        COLLABORATOR_MAPPING_AREA_OUTLINE_COLOR
+    );
+
+    /* Below markerPane (≈600): geometry points use markerPane so labels stay under circle markers. */
+    var mappingAreaLabelsPaneEl = map.createPane('mappingAreaLabelsPane');
+    mappingAreaLabelsPaneEl.style.zIndex = 580;
+    mappingAreaLabelsPaneEl.style.pointerEvents = 'none';
+
     // OSM tiles are native to ~19; zoom 20 uses Leaflet overzoom
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
@@ -218,6 +231,7 @@ function addMarkersToMap(mapData, preserveView) {
     mapData.forEach(function(point) {
         var marker = L.circleMarker([point.lat, point.lng], {
             radius: 8,
+            pane: 'markerPane',
             fillColor: '#0047BB',
             color: '#001A70',
             weight: 2,
@@ -2034,6 +2048,7 @@ function deleteFile(fileId) {
 
 // Toggle add point mode
 function toggleAddPointMode() {
+    if (window.anonymousDisableNewPoints) return;
     // Disable goto location mode if active
     if (gotoLocationMode) {
         toggleGotoLocationMode();
@@ -2061,6 +2076,7 @@ function toggleAddPointMode() {
 
 // Add new point to the map
 function addNewPoint(latlng) {
+    if (window.anonymousDisableNewPoints) return;
     if (addPointMarker) { map.removeLayer(addPointMarker); }
     addPointMarker = L.marker(latlng, {
         icon: L.divIcon({
@@ -2074,6 +2090,7 @@ function addNewPoint(latlng) {
 
 // Create new geometry via AJAX
 function createNewGeometry(latlng) {
+    if (window.anonymousDisableNewPoints) return;
     var datasetId = getDatasetId();
     var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     var newId = 'NEW_' + Date.now();
@@ -2098,7 +2115,13 @@ function createNewGeometry(latlng) {
 
         if (data && data.success && !data.fallback) {
             var newMarker = L.circleMarker([latlng.lat, latlng.lng], {
-                radius: 8, fillColor: '#0047BB', color: '#001A70', weight: 2, opacity: 1, fillOpacity: 0.8
+                radius: 8,
+                pane: 'markerPane',
+                fillColor: '#0047BB',
+                color: '#001A70',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
             }).addTo(map);
             newMarker.geometryData = { id: data.geometry_id, id_kurz: data.id_kurz, address: data.address, lat: latlng.lat, lng: latlng.lng, entries: [] };
             markers.push(newMarker);
@@ -2120,6 +2143,32 @@ function createNewGeometry(latlng) {
 
 // ==================== MAPPING AREAS FUNCTIONS ====================
 
+function mappingAreaLabelFontSizePx(zoom) {
+    var baseZoom = 12;
+    var basePx = 15;
+    var px = basePx * Math.pow(1.1, zoom - baseZoom);
+    return Math.round(Math.max(11, Math.min(44, px)));
+}
+
+function syncCollaboratorMappingAreaLabelZoom() {
+    if (!map) return;
+    var px = mappingAreaLabelFontSizePx(map.getZoom());
+    var nodes = document.querySelectorAll(
+        '.leaflet-tooltip.leaflet-mapping-area-name-tooltip'
+    );
+    if (!nodes.length) return;
+    nodes.forEach(function(el) {
+        el.style.fontSize = px + 'px';
+        el.style.lineHeight = Math.round(px * 1.15) + 'px';
+    });
+}
+
+function ensureCollaboratorMappingAreaLabelZoomListener() {
+    if (!map || map._mappingAreaLabelZoomListenerAttached) return;
+    map._mappingAreaLabelZoomListenerAttached = true;
+    map.on('zoom zoomend', syncCollaboratorMappingAreaLabelZoom);
+}
+
 function clearCollaboratorMappingAreaOutlines() {
     if (!map) return;
     collaboratorMappingAreaPolygons.forEach(function(polygon) {
@@ -2135,32 +2184,63 @@ function clearCollaboratorMappingAreaOutlines() {
 function drawCollaboratorMappingAreaOutlines(areas) {
     clearCollaboratorMappingAreaOutlines();
     if (!map || !areas || !areas.length) return;
+    var showAnonLabels = typeof window.showAnonymousMappingAreaOutlines !== 'undefined' && window.showAnonymousMappingAreaOutlines;
+    var anonLabelCount = 0;
     areas.forEach(function(area) {
         if (!area.geometry || !area.geometry.type) return;
         if (area.geometry.type !== 'Polygon' && area.geometry.type !== 'MultiPolygon') return;
         var gj = L.geoJSON(area.geometry, {
             interactive: false,
+            pane: 'overlayPane',
             style: {
-                color: '#ffc107',
+                color: COLLABORATOR_MAPPING_AREA_OUTLINE_COLOR,
                 weight: 2,
                 opacity: 0.8,
-                fillColor: '#ffc107',
+                fillColor: COLLABORATOR_MAPPING_AREA_OUTLINE_COLOR,
                 fillOpacity: 0.2
             }
         }).addTo(map);
         collaboratorMappingAreaPolygons.push(gj);
+        if (showAnonLabels && area.name) {
+            gj.eachLayer(function(layer) {
+                if (typeof layer.bindTooltip !== 'function') return;
+                layer.bindTooltip(escapeHtml(area.name), {
+                    permanent: true,
+                    direction: 'center',
+                    offset: [0, 36],
+                    className: 'leaflet-mapping-area-name-tooltip',
+                    opacity: 1,
+                    interactive: false,
+                    pane: 'mappingAreaLabelsPane'
+                });
+                anonLabelCount += 1;
+            });
+        }
     });
+    if (anonLabelCount > 0) {
+        ensureCollaboratorMappingAreaLabelZoomListener();
+        syncCollaboratorMappingAreaLabelZoom();
+        requestAnimationFrame(function() {
+            syncCollaboratorMappingAreaLabelZoom();
+        });
+        setTimeout(syncCollaboratorMappingAreaLabelZoom, 100);
+    }
 }
 
 function loadCollaboratorMappingAreaOutlines() {
-    if (typeof window.showCollaboratorMappingAreaOutlines === 'undefined' || !window.showCollaboratorMappingAreaOutlines) {
+    var showAnon = typeof window.showAnonymousMappingAreaOutlines !== 'undefined' && window.showAnonymousMappingAreaOutlines;
+    var showCollab = typeof window.showCollaboratorMappingAreaOutlines !== 'undefined' && window.showCollaboratorMappingAreaOutlines;
+    if (!showAnon && !showCollab) {
         clearCollaboratorMappingAreaOutlines();
         return;
     }
     if (!window.datasetId || !map) {
         return;
     }
-    fetch('/datasets/' + window.datasetId + '/mapping-areas/outlines/', {
+    var outlinesUrl = showAnon
+        ? '/datasets/' + window.datasetId + '/mapping-areas/anonymous-outlines/'
+        : '/datasets/' + window.datasetId + '/mapping-areas/outlines/';
+    fetch(outlinesUrl, {
         method: 'GET',
         credentials: 'same-origin',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }

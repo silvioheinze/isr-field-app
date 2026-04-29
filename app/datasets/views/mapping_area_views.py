@@ -121,6 +121,46 @@ def mapping_area_outlines_view(request, dataset_id):
     return JsonResponse({'success': True, 'mapping_areas': areas_data})
 
 
+def mapping_area_anonymous_outlines_view(request, dataset_id):
+    """
+    Read-only polygon outlines for anonymous data-input sessions (shareable link).
+    Requires valid anonymous token in session; returns all mapping areas when configured.
+    """
+    dataset = get_object_or_404(DataSet, pk=dataset_id)
+    token = request.session.get(f'anonymous_token_{dataset_id}')
+    if not getattr(dataset, 'allow_anonymous_data_input', False) or not token or dataset.anonymous_access_token != token:
+        return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
+    if not getattr(dataset, 'enable_mapping_areas', False):
+        return JsonResponse({'success': True, 'mapping_areas': []})
+    if not getattr(dataset, 'anonymous_show_all_mapping_areas', False):
+        return JsonResponse({'success': True, 'mapping_areas': []})
+
+    try:
+        areas_qs = MappingArea.objects.filter(dataset=dataset).order_by('name')
+    except (ProgrammingError, OperationalError) as db_exc:
+        logger.warning(
+            "Database error while loading anonymous mapping area outlines for dataset %s: %s",
+            dataset.id,
+            db_exc,
+        )
+        return JsonResponse({'success': True, 'mapping_areas': []})
+
+    areas_data = []
+    for area in areas_qs:
+        try:
+            payload = _serialize_mapping_area_outline(area)
+            if payload:
+                areas_data.append(payload)
+        except (ValueError, GEOSException, AttributeError) as exc:
+            logger.exception(
+                "Failed to serialise mapping area outline %s for anonymous dataset %s: %s",
+                area.id,
+                dataset.id,
+                exc,
+            )
+    return JsonResponse({'success': True, 'mapping_areas': areas_data})
+
+
 @login_required
 def mapping_area_list_view(request, dataset_id):
     """Get list of all mapping areas for a dataset"""

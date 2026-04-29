@@ -243,8 +243,17 @@ def dataset_edit_view(request, dataset_id):
                 dataset.allow_anonymous_data_input = allow_anonymous_data_input
                 if allow_anonymous_data_input:
                     dataset.ensure_anonymous_access_token()
+                    dataset.anonymous_show_all_points = request.POST.get('anonymous_show_all_points') == 'on'
+                    dataset.anonymous_disable_new_points = request.POST.get('anonymous_disable_new_points') == 'on'
+                    if enable_mapping_areas:
+                        dataset.anonymous_show_all_mapping_areas = request.POST.get('anonymous_show_all_mapping_areas') == 'on'
+                    else:
+                        dataset.anonymous_show_all_mapping_areas = False
                 else:
                     dataset.anonymous_access_token = None
+                    dataset.anonymous_show_all_points = False
+                    dataset.anonymous_disable_new_points = False
+                    dataset.anonymous_show_all_mapping_areas = False
             except AttributeError:
                 pass
             # Map defaults (graceful handling if migration not yet applied)
@@ -298,13 +307,19 @@ def dataset_copy_view(request, dataset_id):
         'is_public': original_dataset.is_public,
         'allow_multiple_entries': original_dataset.allow_multiple_entries,
         'enable_mapping_areas': original_dataset.enable_mapping_areas,
+        'allow_anonymous_data_input': getattr(original_dataset, 'allow_anonymous_data_input', False),
+        'anonymous_show_all_points': getattr(original_dataset, 'anonymous_show_all_points', False),
+        'anonymous_disable_new_points': getattr(original_dataset, 'anonymous_disable_new_points', False),
+        'anonymous_show_all_mapping_areas': getattr(original_dataset, 'anonymous_show_all_mapping_areas', False),
     }
     if hasattr(original_dataset, 'map_default_lat'):
         create_kwargs['map_default_lat'] = original_dataset.map_default_lat
         create_kwargs['map_default_lng'] = original_dataset.map_default_lng
         create_kwargs['map_default_zoom'] = original_dataset.map_default_zoom
     new_dataset = DataSet.objects.create(**create_kwargs)
-    
+    if new_dataset.allow_anonymous_data_input:
+        new_dataset.ensure_anonymous_access_token()
+
     # Copy ManyToMany relationships (shared_with and shared_with_groups)
     new_dataset.shared_with.set(original_dataset.shared_with.all())
     new_dataset.shared_with_groups.set(original_dataset.shared_with_groups.all())
@@ -838,6 +853,7 @@ def dataset_data_input_view(request, dataset_id):
         'map_default_lng': float(map_default_lng) if map_default_lng is not None else None,
         'map_default_zoom': int(map_default_zoom) if map_default_zoom is not None else None,
         'show_collaborator_mapping_area_outlines': show_collaborator_mapping_area_outlines,
+        'show_anonymous_mapping_area_outlines': False,
     })
 
 
@@ -985,6 +1001,10 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
         'map_default_lng': float(map_default_lng) if map_default_lng is not None else None,
         'map_default_zoom': int(map_default_zoom) if map_default_zoom is not None else None,
         'show_collaborator_mapping_area_outlines': False,
+        'show_anonymous_mapping_area_outlines': (
+            getattr(dataset, 'enable_mapping_areas', False)
+            and getattr(dataset, 'anonymous_show_all_mapping_areas', False)
+        ),
     })
 
 
@@ -1132,7 +1152,10 @@ def dataset_map_data_view(request, dataset_id):
         if user:
             geometries = dataset.filter_geometries_for_user(geometries, user)
         else:
-            geometries = geometries.filter(virtual_contributor=vc)
+            if getattr(dataset, 'anonymous_show_all_points', False):
+                pass
+            else:
+                geometries = geometries.filter(virtual_contributor=vc)
 
         map_data = []
         for geometry in geometries:

@@ -497,3 +497,29 @@
     margin-left: 0.25rem;
     cursor: pointer;
 }
+
+/* Read-only mapping area names: fill matches mapping outline (--mapping-area-outline-color from JS). */
+.leaflet-tooltip.leaflet-mapping-area-name-tooltip {
+    background: var(--mapping-area-outline-color, #ffc107) !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 6px !important;
+    padding: 5px 10px;
+    margin: 0 !important;
+    color: #fff !important;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.25;
+    white-space: normal;
+    max-width: min(28rem, 90vw);
+    text-align: center;
+    pointer-events: none;
+}
+
+.leaflet-tooltip.leaflet-mapping-area-name-tooltip::before {
+    display: none !important;
+}
+
+.leaflet-tooltip.leaflet-mapping-area-name-tooltip .leaflet-tooltip-tip {
+    display: none !important;
+}

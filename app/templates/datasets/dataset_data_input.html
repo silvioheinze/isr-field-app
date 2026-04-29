@@ -69,9 +69,11 @@
                         </button>
                         {% endif %}
                     {% endif %}
+                    {% if not is_anonymous_data_input or not dataset.anonymous_disable_new_points %}
                     <button id="addPointBtn" class="btn btn-primary btn-sm" title="{% trans 'Add New Point' %}">
                         <i class="bi bi-plus-circle"></i> {% trans "Add Point" %}
                     </button>
+                    {% endif %}
                     <button id="focusAllBtn" class="btn btn-light btn-sm" title="{% trans 'Focus on All Points' %}">
                         <i class="bi bi-geo-alt"></i> {% trans "Focus All" %}
                     </button>
@@ -217,12 +219,14 @@
     {# Only owner/superuser should load or draw mapping-area polygons; collaborators keep the flag false. #}
     window.enableMappingAreas = {% if enable_mapping_areas and user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
     window.showCollaboratorMappingAreaOutlines = {% if show_collaborator_mapping_area_outlines %}true{% else %}false{% endif %};
+    window.showAnonymousMappingAreaOutlines = {% if show_anonymous_mapping_area_outlines %}true{% else %}false{% endif %};
     window.isAnonymousDataInput = {% if is_anonymous_data_input %}true{% else %}false{% endif %};
     window.showNameModal = {% if show_name_modal %}true{% else %}false{% endif %};
     window.mapDefaultLat = {% if map_default_lat %}{{ map_default_lat }}{% else %}null{% endif %};
     window.mapDefaultLng = {% if map_default_lng %}{{ map_default_lng }}{% else %}null{% endif %};
     window.mapDefaultZoom = {% if map_default_zoom %}{{ map_default_zoom }}{% else %}null{% endif %};
     {% if is_anonymous_data_input %}window.anonymousAccessToken = "{{ anonymous_access_token|escapejs }}";{% endif %}
+    window.anonymousDisableNewPoints = {% if is_anonymous_data_input and dataset.anonymous_disable_new_points %}true{% else %}false{% endif %};
     
     // Translation strings for JavaScript
     window.translations = {

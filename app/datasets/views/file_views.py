@@ -122,7 +122,7 @@ def upload_files_view(request):
             if not dataset.user_has_geometry_access(user, geometry):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         else:
-            if geometry.virtual_contributor_id != vc.id:
+            if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
 
         files = request.FILES.getlist('files')
@@ -186,7 +186,7 @@ def geometry_files_view(request, geometry_id):
             if not dataset.user_has_geometry_access(user, geometry):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         else:
-            if geometry.virtual_contributor_id != vc.id:
+            if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         files = DataEntryFile.objects.filter(entry__geometry=geometry).order_by('-upload_date')
@@ -229,7 +229,7 @@ def delete_file_view(request, file_id):
             if not dataset.user_has_geometry_access(user, geometry):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         else:
-            if geometry.virtual_contributor_id != vc.id:
+            if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         filename = file_obj.filename

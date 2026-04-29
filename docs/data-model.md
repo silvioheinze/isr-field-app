@@ -7,7 +7,7 @@ Domain logic is concentrated in [`app/datasets/models.py`](../app/datasets/model
 | Model | Role |
 |-------|------|
 | `AuditLog` | Optional audit entries: user, action, target, timestamp. |
-| `DataSet` | Top-level container: owner, sharing, flags (public, multiple entries, mapping areas, anonymous token), map defaults. |
+| `DataSet` | Top-level container: owner, sharing, flags (public, multiple entries, mapping areas, anonymous token, **`anonymous_show_all_points`**, **`anonymous_disable_new_points`**, **`anonymous_show_all_mapping_areas`** when anonymous input is on—meaningful only if mapping areas are enabled), map defaults. |
 | `VirtualContributor` | Anonymous contributor identity when anonymous data input is enabled (`uuid`, display name, dataset). |
 | `DataGeometry` | Point geometry (`Point`, SRID 4326), address, `id_kurz`, creator user or virtual contributor. |
 | `DataEntry` | Belongs to a geometry; optional name/year; creator user or virtual contributor. |
@@ -104,6 +104,10 @@ When **`enable_mapping_areas`** is on and the dataset has mapping areas:
 
 - Logged-in contributors: unique `(dataset, id_kurz)` when `virtual_contributor` is null.
 - Anonymous contributors: unique `(dataset, id_kurz, virtual_contributor)` when virtual contributor is set.
+
+**Anonymous map visibility:** When **`anonymous_show_all_points`** is enabled on the dataset (alongside **`allow_anonymous_data_input`**), anonymous contributors receive all geometries from **[`dataset_map_data_view`](../app/datasets/views/dataset_views.py)** and may use **[`geometry_details_view`](../app/datasets/views/geometry_views.py)**, **[`save_entries_view`](../app/datasets/views/entry_views.py)**, **[`entry_create_view`](../app/datasets/views/entry_views.py)**, and **[`file_views`](../app/datasets/views/file_views.py)** for any geometry in the dataset via **`DataSet.anonymous_contributor_can_use_geometry`**. When the flag is off, anonymous actions are limited to geometries created by that **`VirtualContributor`** (see [Security and access control](security-and-access-control.md)).
+
+**Anonymous new points:** When **`anonymous_disable_new_points`** is enabled, **[`geometry_create_view`](../app/datasets/views/geometry_views.py)** rejects anonymous geometry creation (403); logged-in users are unaffected.
 
 ## Field typing
 

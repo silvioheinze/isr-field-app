@@ -79,20 +79,39 @@
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="allow_anonymous_data_input" name="allow_anonymous_data_input" {% if dataset.allow_anonymous_data_input %}checked{% endif %}>
                                 <label class="form-check-label fw-semibold" for="allow_anonymous_data_input">Allow anonymous data input</label>
-                                <div class="form-text">When enabled, anyone with the shareable link can add geometry points and entries without logging in. Contributors see only their own data.</div>
+                                <div class="form-text">When enabled, anyone with the shareable link can add geometry points and entries without logging in. By default, anonymous contributors only see their own points on the map unless you enable &quot;Show all points&quot; below.</div>
                             </div>
-                            {% if dataset.allow_anonymous_data_input and dataset.anonymous_access_token %}
-                            <div class="mt-3 p-3 bg-light rounded">
-                                <label class="form-label fw-semibold small">Shareable data input URL</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control" id="anonymousDataInputUrl" readonly
-                                        value="{{ request.scheme }}://{{ request.get_host }}{% url 'dataset_data_input_anonymous' dataset_id=dataset.id token=dataset.anonymous_access_token %}">
-                                    <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('anonymousDataInputUrl').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000)">
-                                        Copy
-                                    </button>
+                            <div id="anonymousDataInputExtras" class="ps-2 border-start border-2 ms-1 mt-2" style="display: {% if dataset.allow_anonymous_data_input %}block{% else %}none{% endif %};">
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="anonymous_show_all_points" name="anonymous_show_all_points" {% if dataset.anonymous_show_all_points %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="anonymous_show_all_points">Show all points</label>
+                                    <div class="form-text">When enabled, anonymous contributors see every geometry on this dataset on the input map and can edit entries on those points. When disabled, they only see and edit their own points.</div>
                                 </div>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="anonymous_disable_new_points" name="anonymous_disable_new_points" {% if dataset.anonymous_disable_new_points %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="anonymous_disable_new_points">Deactivate new points</label>
+                                    <div class="form-text">When enabled, anonymous contributors cannot add new geometry points; they can open existing points and add or edit entries only.</div>
+                                </div>
+                                <div id="anonymousShowMappingAreasExtras" class="mb-3" style="display: {% if dataset.allow_anonymous_data_input and dataset.enable_mapping_areas %}block{% else %}none{% endif %};">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" id="anonymous_show_all_mapping_areas" name="anonymous_show_all_mapping_areas" {% if dataset.anonymous_show_all_mapping_areas %}checked{% endif %}>
+                                        <label class="form-check-label fw-semibold" for="anonymous_show_all_mapping_areas">Show all mapping areas</label>
+                                        <div class="form-text">When enabled, anonymous contributors see every mapping area as a read-only outline with its name on the data-input map. They cannot edit mapping areas.</div>
+                                    </div>
+                                </div>
+                                {% if dataset.allow_anonymous_data_input and dataset.anonymous_access_token %}
+                                <div class="mt-3 p-3 bg-light rounded">
+                                    <label class="form-label fw-semibold small">Shareable data input URL</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" id="anonymousDataInputUrl" readonly
+                                            value="{{ request.scheme }}://{{ request.get_host }}{% url 'dataset_data_input_anonymous' dataset_id=dataset.id token=dataset.anonymous_access_token %}">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('anonymousDataInputUrl').value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 2000)">
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endif %}
                             </div>
-                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -325,6 +344,28 @@
             marker.setLatLng([lat, lng]);
         }
     });
+})();
+
+(function() {
+    var anon = document.getElementById('allow_anonymous_data_input');
+    var extras = document.getElementById('anonymousDataInputExtras');
+    var enableMa = document.getElementById('enable_mapping_areas');
+    var mappingExtras = document.getElementById('anonymousShowMappingAreasExtras');
+    function syncAnonymousMappingExtras() {
+        if (!mappingExtras) return;
+        var show = !!(anon && anon.checked && enableMa && enableMa.checked);
+        mappingExtras.style.display = show ? 'block' : 'none';
+    }
+    if (anon && extras) {
+        anon.addEventListener('change', function() {
+            extras.style.display = anon.checked ? 'block' : 'none';
+            syncAnonymousMappingExtras();
+        });
+    }
+    if (enableMa) {
+        enableMa.addEventListener('change', syncAnonymousMappingExtras);
+    }
+    syncAnonymousMappingExtras();
 })();
 </script>
 {% endblock %}

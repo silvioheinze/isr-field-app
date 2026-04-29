@@ -30,6 +30,18 @@ class DataSet(models.Model):
     allow_multiple_entries = models.BooleanField(default=False, help_text="Allow multiple data entries per geometry point")
     enable_mapping_areas = models.BooleanField(default=False, help_text="Enable mapping areas functionality for this dataset")
     allow_anonymous_data_input = models.BooleanField(default=False, help_text="Allow data input without login via shareable URL")
+    anonymous_show_all_points = models.BooleanField(
+        default=False,
+        help_text="When anonymous data input is enabled: show all geometry points on the map; anonymous contributors may load details and edit entries on any geometry in this dataset (not only their own). When disabled, they only see and edit their own points.",
+    )
+    anonymous_disable_new_points = models.BooleanField(
+        default=False,
+        help_text="When anonymous data input is enabled: anonymous contributors cannot create new geometry points; they can only open existing points and add or edit entries.",
+    )
+    anonymous_show_all_mapping_areas = models.BooleanField(
+        default=False,
+        help_text="When anonymous data input and mapping areas are enabled: show all mapping area outlines (with names) on the anonymous data-input map. Does not grant anonymous mapping-area editing.",
+    )
     anonymous_access_token = models.CharField(max_length=64, unique=True, null=True, blank=True, help_text="Secret token for anonymous access URL")
     map_default_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center latitude when opening data input")
     map_default_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Default map center longitude when opening data input")
@@ -136,6 +148,18 @@ class DataSet(models.Model):
             id__in=allowed_ids,
             geometry__covers=geometry_obj.geometry
         ).exists()
+
+    def anonymous_contributor_can_use_geometry(self, geometry_obj, virtual_contributor):
+        """
+        Whether an anonymous virtual contributor may load details, edit entries, upload files, etc.
+        for this geometry: always their own points; when anonymous_show_all_points is enabled,
+        any geometry in this dataset.
+        """
+        if virtual_contributor is None or geometry_obj.dataset_id != self.pk:
+            return False
+        if geometry_obj.virtual_contributor_id == virtual_contributor.id:
+            return True
+        return bool(getattr(self, 'anonymous_show_all_points', False))
 
     class Meta:
         ordering = ['-created_at']

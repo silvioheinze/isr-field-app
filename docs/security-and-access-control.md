@@ -61,6 +61,12 @@ If **`allow_anonymous_data_input`** is enabled on a dataset:
 - Routes such as **`dataset_data_input_anonymous`** ([`urls.py`](../app/isrfield/urls.py)) accept that token without normal login.
 - Geometries and entries created without a logged-in user may reference **`VirtualContributor`** instead of **`User`**.
 
+- **`anonymous_show_all_points`**: When enabled in dataset settings (shown only while anonymous data input is on), anonymous contributors see **every** geometry on the input map and may load geometry details, **save entry field values**, create entries, and use file upload/delete APIs for those geometries ([`dataset_map_data_view`](../app/datasets/views/dataset_views.py), [`geometry_details_view`](../app/datasets/views/geometry_views.py), [`save_entries_view`](../app/datasets/views/entry_views.py), [`entry_create_view`](../app/datasets/views/entry_views.py), [`file_views`](../app/datasets/views/file_views.py)). Access is enforced by [`DataSet.anonymous_contributor_can_use_geometry`](../app/datasets/models.py). When this flag is off, anonymous users only interact with geometries they created.
+
+- **`anonymous_disable_new_points`**: When enabled, anonymous contributors cannot create geometries via **[`geometry_create_view`](../app/datasets/views/geometry_views.py)** (API returns 403; the Add Point control is hidden on anonymous data input). They may still open existing points and add or edit entries.
+
+- **`anonymous_show_all_mapping_areas`**: When **`enable_mapping_areas`** is also enabled, anonymous contributors may load **read-only** polygon outlines and labels for **every** [`MappingArea`](../app/datasets/models.py) on the dataset via **`mapping_area_anonymous_outlines`** ([`mapping_area_views.py`](../app/datasets/views/mapping_area_views.py)). This does **not** grant anonymous users CRUD on mapping areas (those remain owner-only).
+
 Uniqueness rules for geometries combine **`id_kurz`** with **`virtual_contributor`** when applicable.
 
 ## Health endpoint

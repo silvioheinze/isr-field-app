@@ -22,6 +22,13 @@ def geometry_create_view(request, dataset_id):
             return JsonResponse({'success': False, 'error': 'Please enter your name first'}, status=403)
         return render(request, 'datasets/403.html', status=403)
 
+    _anon_new_points_disabled_msg = 'Adding new points is disabled for anonymous access.'
+    if user is None and vc not in (None, 'pending') and getattr(dataset, 'anonymous_disable_new_points', False):
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({'success': False, 'error': _anon_new_points_disabled_msg}, status=403)
+        messages.error(request, _anon_new_points_disabled_msg)
+        return redirect('dataset_data_input_anonymous', dataset_id=dataset.id, token=dataset.anonymous_access_token)
+
     if request.method == 'POST':
         # Handle AJAX requests
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -112,7 +119,7 @@ def geometry_details_view(request, geometry_id):
             if not dataset.user_has_geometry_access(user, geometry):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         else:
-            if geometry.virtual_contributor_id != vc.id:
+            if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
 
         enabled_fields = DatasetField.order_fields(DatasetField.objects.filter(

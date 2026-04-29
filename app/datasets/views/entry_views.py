@@ -131,7 +131,7 @@ def entry_create_view(request, geometry_id):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
             return render(request, 'datasets/403.html', status=403)
     else:
-        if geometry.virtual_contributor_id != vc.id:
+        if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
             return render(request, 'datasets/403.html', status=403)
@@ -242,7 +242,7 @@ def save_entries_view(request):
             if not dataset.user_has_geometry_access(user, geometry):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         else:
-            if geometry.virtual_contributor_id != vc.id:
+            if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
         # Process entries data
@@ -268,6 +268,8 @@ def save_entries_view(request):
             if entry_data['id']:
                 try:
                     entry = DataEntry.objects.get(pk=entry_data['id'])
+                    if entry.geometry_id != geometry.id:
+                        continue
                     
                     # Update field values
                     for field_name, field_value in entry_data['fields'].items():

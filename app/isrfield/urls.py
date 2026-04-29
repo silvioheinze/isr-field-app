@@ -90,7 +90,12 @@ urlpatterns = [
     path('datasets/files/<int:file_id>/delete/confirm/', datasets_views.file_delete_view, name='file_delete'),
     path('datasets/files/<int:file_id>/delete/', datasets_views.delete_file_view, name='delete_file'),
     path('entries/save/', datasets_views.save_entries_view, name='save_entries'),
-    # Mapping area URLs (outlines must be registered before the list path)
+    # Mapping area URLs (anonymous-outlines and outlines before the generic list path)
+    path(
+        'datasets/<int:dataset_id>/mapping-areas/anonymous-outlines/',
+        mapping_area_views.mapping_area_anonymous_outlines_view,
+        name='mapping_area_anonymous_outlines',
+    ),
     path(
         'datasets/<int:dataset_id>/mapping-areas/outlines/',
         mapping_area_views.mapping_area_outlines_view,

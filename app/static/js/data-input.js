@@ -1093,14 +1093,18 @@ function generateEntriesTable(point) {
                             entriesHtml += createFormFieldInput(field, '', -1);
                             entriesHtml += '</div>';
                         } else {
-                            entriesHtml += '<div class="mb-3">';
+                            var newEntryPrefillMeta = {};
+                            var inputHtml = createFormFieldInput(field, '', -1, {
+                                outMeta: newEntryPrefillMeta
+                            }); // -1 indicates new entry
+                            var rowClass = 'mb-3' + (newEntryPrefillMeta.hideNewEntryField ? ' d-none' : '');
+                            entriesHtml += '<div class="' + rowClass + '">';
                             entriesHtml += '<label for="field_' + field.field_name + '" class="form-label">';
                             entriesHtml += field.label;
                             if (field.required) {
                                 entriesHtml += ' <span class="text-danger">*</span>';
                             }
                             entriesHtml += '</label>';
-                            var inputHtml = createFormFieldInput(field, '', -1); // -1 indicates new entry
                             entriesHtml += inputHtml;
                             if (field.help_text) {
                                 entriesHtml += '<div class="form-text">' + field.help_text + '</div>';
@@ -1142,13 +1146,20 @@ function generateEntriesTable(point) {
             entriesHtml += '<button type="button" class="btn btn-outline-secondary" id="copyEntryBtn" onclick="copyToNewEntry(' + selectedEntry.id + ', ' + selectedEntryIndex + ', this)">';
             entriesHtml += '<i class="bi bi-files"></i> Copy</button>';
         }
-        if (currentPoint && currentPoint.lat && currentPoint.lng) {
+        if (
+            window.dataInputShowStreetView &&
+            currentPoint &&
+            currentPoint.lat &&
+            currentPoint.lng
+        ) {
             var googleStreetViewUrl = 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + currentPoint.lat + ',' + currentPoint.lng;
             entriesHtml += '<a href="' + googleStreetViewUrl + '" class="btn btn-outline-primary" target="_blank" rel="noopener noreferrer">';
             entriesHtml += '<i class="bi bi-geo-alt"></i> Street View</a>';
         }
-        entriesHtml += '<a href="/entries/' + selectedEntry.id + '/" class="btn btn-outline-info" target="_blank">';
-        entriesHtml += '<i class="bi bi-eye"></i> View Details</a>';
+        if (!window.isAnonymousDataInput) {
+            entriesHtml += '<a href="/entries/' + selectedEntry.id + '/" class="btn btn-outline-info" target="_blank">';
+            entriesHtml += '<i class="bi bi-eye"></i> View Details</a>';
+        }
     }
     entriesHtml += '</div>';
     
@@ -1219,15 +1230,189 @@ function updateEntryBadges(sortedEntries) {
     });
 }
 
-// Create form field input based on field configuration
-function createFormFieldInput(field, value, entryIndex) {
-    var inputHtml = '';
-    var fieldId = 'field_' + field.field_name;
-    var fieldName = 'fields[' + field.field_name + ']';
+function wireWelcomeMultipleChoiceGroup(fieldIdBase) {
+    var group = document.getElementById(fieldIdBase + '_group');
+    var hidden = document.getElementById(fieldIdBase + '_hidden');
+    if (!group || !hidden) {
+        return;
+    }
+    group.addEventListener('change', function(e) {
+        if (e.target.type === 'checkbox') {
+            var checkboxes = group.querySelectorAll('input[type=checkbox]');
+            var selected = [];
+            for (var i = 0; i < checkboxes.length; i++) {
+                if (checkboxes[i].checked) {
+                    selected.push(checkboxes[i].value);
+                }
+            }
+            hidden.value = JSON.stringify(selected);
+        }
+    });
+}
+
+/** Build inputs for anonymous welcome modal (field IDs welcome_vf_<field_name>). */
+function renderAnonymousWelcomeControls(rootEl, fields, prefill) {
+    if (!rootEl) {
+        return;
+    }
+    rootEl.innerHTML = '';
+    if (!fields || fields.length === 0) {
+        return;
+    }
+    prefill = prefill || {};
+    fields.forEach(function(field) {
+        var wrap = document.createElement('div');
+        wrap.className = 'mb-3';
+        var lab = document.createElement('label');
+        lab.className = 'form-label';
+        lab.setAttribute('for', 'welcome_vf_' + field.field_name);
+        lab.appendChild(document.createTextNode(field.label || field.field_name));
+        if (field.required) {
+            lab.appendChild(document.createTextNode(' '));
+            var ast = document.createElement('span');
+            ast.className = 'text-danger';
+            ast.textContent = '*';
+            lab.appendChild(ast);
+        }
+        wrap.appendChild(lab);
+
+        var pv = prefill[field.field_name];
+        var initial =
+            pv === undefined || pv === null
+                ? ''
+                : pv;
+        var inputHtml = createFormFieldInput(field, initial, -1, { welcomeModal: true });
+
+        var tmp = document.createElement('div');
+        tmp.innerHTML = inputHtml;
+
+        while (tmp.firstChild) {
+            wrap.appendChild(tmp.firstChild);
+        }
+
+        if (field.field_type === 'multiple_choice') {
+            wireWelcomeMultipleChoiceGroup('welcome_vf_' + field.field_name);
+        }
+
+        if (field.help_text) {
+            var ht = document.createElement('div');
+            ht.className = 'form-text small';
+            ht.textContent = field.help_text;
+            wrap.appendChild(ht);
+        }
+        rootEl.appendChild(wrap);
+    });
+}
+
+function collectAnonymousWelcomeFieldPayload(fieldsMeta) {
+    var out = {};
+    if (!fieldsMeta || !fieldsMeta.length) {
+        return out;
+    }
+    fieldsMeta.forEach(function(field) {
+        var fid = 'welcome_vf_' + field.field_name;
+        if (field.field_type === 'multiple_choice') {
+            var mh = document.getElementById(fid + '_hidden');
+            if (!mh) {
+                return;
+            }
+            try {
+                out[field.field_name] = JSON.parse(mh.value || '[]');
+            } catch (e) {
+                out[field.field_name] = [];
+            }
+            return;
+        }
+        var el = document.getElementById(fid);
+        if (!el) {
+            return;
+        }
+        if (el.tagName === 'SELECT') {
+            out[field.field_name] = el.value;
+            return;
+        }
+        if (el.tagName === 'TEXTAREA' || el.type === 'text' || el.type === 'number' || el.type === 'email' ||
+            el.type === 'tel' || el.type === 'url' || el.type === 'time' ||
+            el.type === 'datetime-local' || el.type === 'date') {
+            out[field.field_name] = el.value;
+        }
+    });
+    return out;
+}
+
+/** True when a welcome-prefill value should be treated as intentional user input for hiding the map form copy. */
+function welcomePrefillValueIsProvided(pv, field) {
+    if (pv === undefined || pv === null) {
+        return false;
+    }
+    if (field.field_type === 'multiple_choice' && Array.isArray(pv)) {
+        return pv.length > 0;
+    }
+    if (typeof pv === 'string' && pv.trim() === '') {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Apply anonymous-session welcome_modal values to empty new-entry fields;
+ * optionally mark the rendered control as hideable on the map form (still submitted).
+ */
+function computeAnonymousWelcomePrefillMerge(field, value, entryIndex, welcomeModal) {
     var fieldValue = value || '';
-    
+    var hideRenderedField = false;
+    if (
+        welcomeModal ||
+        entryIndex !== -1 ||
+        field.field_type === 'headline' ||
+        typeof window.anonymousWelcomePrefill !== 'object' ||
+        window.anonymousWelcomePrefill === null ||
+        !window.isAnonymousDataInput ||
+        !Object.prototype.hasOwnProperty.call(window.anonymousWelcomePrefill, field.field_name)
+    ) {
+        return { fieldValue: fieldValue, hideRenderedField: false };
+    }
+    var pv = window.anonymousWelcomePrefill[field.field_name];
+    var emptyish =
+        fieldValue === '' ||
+        fieldValue === undefined ||
+        fieldValue === null ||
+        fieldValue === '[]';
+    if (emptyish && pv !== undefined && pv !== null) {
+        if (field.field_type === 'multiple_choice' && Array.isArray(pv)) {
+            fieldValue = JSON.stringify(pv);
+        } else {
+            fieldValue = pv;
+        }
+        hideRenderedField = welcomePrefillValueIsProvided(pv, field);
+    }
+    return { fieldValue: fieldValue, hideRenderedField: hideRenderedField };
+}
+
+// Create form field input based on field configuration
+function createFormFieldInput(field, value, entryIndex, opts) {
+    opts = opts || {};
+    var welcomeModal = opts.welcomeModal === true;
+    var fieldIdPrefix = welcomeModal ? 'welcome_vf_' : 'field_';
+    var fieldId = fieldIdPrefix + field.field_name;
+    var fieldName = welcomeModal ? 'welcome_vf[' + field.field_name + ']' : 'fields[' + field.field_name + ']';
+    var merge = computeAnonymousWelcomePrefillMerge(field, value, entryIndex, welcomeModal);
+    var fieldValue = merge.fieldValue;
+    var suppressRequired = merge.hideRenderedField && !welcomeModal;
+    if (opts.outMeta && !welcomeModal) {
+        opts.outMeta.hideNewEntryField = !!merge.hideRenderedField;
+    }
+    if (field.field_type === 'boolean' && typeof fieldValue === 'boolean') {
+        fieldValue = fieldValue ? 'true' : 'false';
+    }
+    if (field.field_type === 'multiple_choice' && Array.isArray(fieldValue)) {
+        fieldValue = JSON.stringify(fieldValue);
+    }
+
+    var inputHtml = '';
+
     // Add entry index to field name and ID for existing entries
-    if (entryIndex >= 0) {
+    if (!welcomeModal && entryIndex >= 0) {
         fieldId += '_' + entryIndex;
         fieldName = 'fields[' + field.field_name + '][' + entryIndex + ']';
     }
@@ -1238,7 +1423,7 @@ function createFormFieldInput(field, value, entryIndex) {
             break;
         case 'text':
             inputHtml = '<input type="text" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.max_length) inputHtml += ' maxlength="' + field.max_length + '"';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
@@ -1246,7 +1431,7 @@ function createFormFieldInput(field, value, entryIndex) {
             
         case 'textarea':
             inputHtml = '<textarea class="form-control" id="' + fieldId + '" name="' + fieldName + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.max_length) inputHtml += ' maxlength="' + field.max_length + '"';
             inputHtml += ' rows="' + (field.rows || 4) + '"';
             if (field.non_editable) inputHtml += ' readonly';
@@ -1255,7 +1440,7 @@ function createFormFieldInput(field, value, entryIndex) {
             
         case 'integer':
             inputHtml = '<input type="number" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.min_value !== undefined) inputHtml += ' min="' + field.min_value + '"';
             if (field.max_value !== undefined) inputHtml += ' max="' + field.max_value + '"';
             if (field.non_editable) inputHtml += ' readonly';
@@ -1264,16 +1449,32 @@ function createFormFieldInput(field, value, entryIndex) {
             
         case 'float':
             inputHtml = '<input type="number" step="0.01" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.min_value !== undefined) inputHtml += ' min="' + field.min_value + '"';
             if (field.max_value !== undefined) inputHtml += ' max="' + field.max_value + '"';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
             break;
-            
+
+        case 'decimal':
+            inputHtml =
+                '<input type="number" step="any" class="form-control" id="' +
+                fieldId +
+                '" name="' +
+                fieldName +
+                '" value="' +
+                fieldValue +
+                '" placeholder="' +
+                (field.placeholder || 'Enter ' + field.label) +
+                '"';
+            if (field.required && !suppressRequired) inputHtml += ' required';
+            if (field.non_editable) inputHtml += ' readonly';
+            inputHtml += '>';
+            break;
+
         case 'boolean':
             inputHtml = '<select class="form-select" id="' + fieldId + '" name="' + fieldName + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' disabled';
             inputHtml += '>';
             inputHtml += '<option value="">' + (field.placeholder || 'Select option') + '</option>';
@@ -1289,7 +1490,7 @@ function createFormFieldInput(field, value, entryIndex) {
             var options = normalizeFieldChoices(field);
             var fieldValueStr = fieldValue !== undefined && fieldValue !== null ? String(fieldValue) : '';
             inputHtml = '<select class="form-select" id="' + fieldId + '" name="' + fieldName + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' disabled';
             inputHtml += '>';
             inputHtml += '<option value="">' + escapeHtml(field.placeholder || 'Select option') + '</option>';
@@ -1340,7 +1541,7 @@ function createFormFieldInput(field, value, entryIndex) {
                 });
                 inputHtml += '</div>';
                 inputHtml += '<input type="hidden" name="' + fieldName + '" id="' + fieldId + '_hidden" value=\'' + JSON.stringify(selectedValues) + '\'>';
-                if (!field.non_editable) {
+                if (!field.non_editable && !welcomeModal) {
                     inputHtml += '<script>';
                     inputHtml += '(function() {';
                     inputHtml += '  var group = document.getElementById("' + fieldId + '_group");';
@@ -1362,7 +1563,7 @@ function createFormFieldInput(field, value, entryIndex) {
                 }
             } else {
                 inputHtml = '<input type="text" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-                if (field.required) inputHtml += ' required';
+                if (field.required && !suppressRequired) inputHtml += ' required';
                 if (field.non_editable) inputHtml += ' readonly';
                 inputHtml += '>';
             }
@@ -1386,7 +1587,7 @@ function createFormFieldInput(field, value, entryIndex) {
                 }
             }
             inputHtml = '<input type="date" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + dateValue + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.min_date) inputHtml += ' min="' + field.min_date + '"';
             if (field.max_date) inputHtml += ' max="' + field.max_date + '"';
             if (field.non_editable) inputHtml += ' readonly';
@@ -1395,7 +1596,7 @@ function createFormFieldInput(field, value, entryIndex) {
             
         case 'datetime':
             inputHtml = '<input type="datetime-local" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.min_date) inputHtml += ' min="' + field.min_date + '"';
             if (field.max_date) inputHtml += ' max="' + field.max_date + '"';
             if (field.non_editable) inputHtml += ' readonly';
@@ -1404,35 +1605,35 @@ function createFormFieldInput(field, value, entryIndex) {
             
         case 'time':
             inputHtml = '<input type="time" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
             break;
             
         case 'email':
             inputHtml = '<input type="email" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter email address') + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
             break;
             
         case 'url':
             inputHtml = '<input type="url" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter URL') + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
             break;
             
         case 'phone':
             inputHtml = '<input type="tel" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter phone number') + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
             break;
             
         default:
             inputHtml = '<input type="text" class="form-control" id="' + fieldId + '" name="' + fieldName + '" value="' + fieldValue + '" placeholder="' + (field.placeholder || 'Enter ' + field.label) + '"';
-            if (field.required) inputHtml += ' required';
+            if (field.required && !suppressRequired) inputHtml += ' required';
             if (field.non_editable) inputHtml += ' readonly';
             inputHtml += '>';
     }

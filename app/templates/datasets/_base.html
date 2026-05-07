@@ -183,6 +183,13 @@
         .badge.bg-danger {
             background-color: #dc3545 !important;
         }
+
+        /* Above siblings in navbar (brand z-1) so “Change user” is never clipped as display:none */
+        .navbar-dark .navbar-center-slot {
+            z-index: 5;
+            pointer-events: auto;
+            max-width: min(420px, calc(100% - 8rem));
+        }
         
         /* Footer styling */
         footer {
@@ -210,12 +217,15 @@
 <body>
     <!-- Topbar Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container-fluid">
-                            <a class="navbar-brand" href="{% if user.is_authenticated %}{% url 'dashboard' %}{% else %}{% url 'login' %}{% endif %}">ISR Field</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <div class="container-fluid position-relative">
+            <a class="navbar-brand z-1 position-relative" href="{% if user.is_authenticated %}{% url 'dashboard' %}{% else %}{% url 'login' %}{% endif %}">ISR Field</a>
+            <div class="navbar-center-slot d-flex position-absolute top-50 start-50 translate-middle align-items-center justify-content-center px-2 flex-shrink-0">
+                {% block navbar_center %}{% endblock %}
+            </div>
+            <button class="navbar-toggler ms-auto ms-lg-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
+            <div class="collapse navbar-collapse justify-content-lg-end" id="navbarNav">
                 {% if user.is_authenticated %}
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">

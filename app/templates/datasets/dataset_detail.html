@@ -82,7 +82,7 @@
                     {% endif %}
                 </div>
                 <div class="card-body">
-                    <p class="text-muted small mb-3">Arrange, enable, or update the fields available for data input.</p>
+                    <p class="text-muted small mb-3">Arrange, enable, or update the fields available for data input. Field display labels can be edited with the pencil action (or when adding a field).</p>
 
                     {% if dataset.owner == user or user.is_superuser %}
                     <form method="post" class="field-config-form">
@@ -96,7 +96,7 @@
                                         <th scope="col" class="text-center" style="width: 90px;">Order</th>
                                         <th scope="col">Field</th>
                                         <th scope="col" class="text-center">Type</th>
-                                        <th scope="col" style="width: 220px;">Display Label</th>
+                                        {% if allow_anonymous_data_input %}<th scope="col" class="text-center" style="width: 120px;"><span title="Shown in anonymous welcome modal under Your name">Anonymous welcome</span></th>{% endif %}
                                         <th scope="col" class="text-center">Enabled</th>
                                         <th scope="col" class="text-center">Required</th>
                                         <th scope="col" class="text-center">Non-Editable</th>
@@ -117,7 +117,8 @@
                                         </td>
                                         <td>
                                             <div class="fw-semibold small text-uppercase text-muted">{{ field.field_name }}</div>
-                                            <div class="small">
+                                            <div class="text-muted small">{{ field.label }}</div>
+                                            <div class="small mt-1">
                                                 {% if field.is_id_field %}<span class="badge bg-primary me-1">ID</span>{% endif %}
                                                 {% if field.is_coordinate_field %}<span class="badge bg-secondary me-1">Coord</span>{% endif %}
                                                 {% if field.is_address_field %}<span class="badge bg-success me-1">Address</span>{% endif %}
@@ -126,13 +127,18 @@
                                         </td>
                                         <td class="text-center">
                                             <span class="badge bg-info text-dark">{{ field.get_field_type_display }}</span>
-                                            {% if field.typology %}
-                                                <div class="small text-muted mt-1">{{ field.typology.name }}{% if field.typology_category %} &middot; {{ field.typology_category }}{% endif %}</div>
+                                        </td>
+                                        {% if allow_anonymous_data_input %}
+                                        <td class="text-center align-middle">
+                                            {% if field.field_type != 'headline' %}
+                                            <div class="form-check form-switch d-inline-flex justify-content-center">
+                                                <input class="form-check-input" type="checkbox" name="field_{{ field.id }}_anonymous_welcome" id="field_{{ field.id }}_anonymous_welcome" {% if field.anonymous_welcome %}checked{% endif %} aria-label="Anonymous welcome {{ field.field_name }}">
+                                            </div>
+                                            {% else %}
+                                            <span class="text-muted small">—</span>
                                             {% endif %}
                                         </td>
-                                        <td>
-                                            <input type="text" name="field_{{ field.id }}_label" class="form-control form-control-sm" value="{{ field.label }}">
-                                        </td>
+                                        {% endif %}
                                         <td class="text-center">
                                             <div class="form-check form-switch d-inline-flex">
                                                 <input class="form-check-input" type="checkbox" name="field_{{ field.id }}_enabled" id="field_{{ field.id }}_enabled" {% if field.enabled %}checked{% endif %}>
@@ -161,7 +167,7 @@
                                     </tr>
                                     {% empty %}
                                     <tr>
-                                        <td colspan="8" class="text-center text-muted py-4">No custom fields configured yet.</td>
+                                        <td colspan="{% if allow_anonymous_data_input %}8{% else %}7{% endif %}" class="text-center text-muted py-4">No custom fields configured yet.</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -181,8 +187,7 @@
                             <thead class="table-light">
                                 <tr>
                                     <th scope="col">Field</th>
-                                    <th scope="col">Type</th>
-                                    <th scope="col">Label</th>
+                                    <th scope="col" class="text-center">Type</th>
                                     <th scope="col">Status</th>
                                     <th scope="col">Details</th>
                                 </tr>
@@ -192,19 +197,16 @@
                                 <tr>
                                     <td>
                                         <div class="fw-semibold small text-uppercase text-muted">{{ field.field_name }}</div>
-                                        <div class="small">
+                                        <div class="text-muted small">{{ field.label }}</div>
+                                        <div class="small mt-1">
                                             {% if field.is_id_field %}<span class="badge bg-primary me-1">ID</span>{% endif %}
                                             {% if field.is_coordinate_field %}<span class="badge bg-secondary me-1">Coord</span>{% endif %}
                                             {% if field.is_address_field %}<span class="badge bg-success me-1">Address</span>{% endif %}
                                         </div>
                                     </td>
-                                    <td>
+                                    <td class="text-center">
                                         <span class="badge bg-info text-dark">{{ field.get_field_type_display }}</span>
-                                        {% if field.typology %}
-                                            <div class="small text-muted mt-1">{{ field.typology.name }}{% if field.typology_category %} &middot; {{ field.typology_category }}{% endif %}</div>
-                                        {% endif %}
                                     </td>
-                                    <td>{{ field.label }}</td>
                                     <td>
                                         {% if field.enabled %}
                                             <span class="badge bg-success">Enabled</span>
@@ -219,7 +221,7 @@
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="5" class="text-center text-muted py-4">No custom fields configured yet.</td>
+                                    <td colspan="4" class="text-center text-muted py-4">No custom fields configured yet.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

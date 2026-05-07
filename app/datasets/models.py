@@ -67,6 +67,10 @@ class DataSet(models.Model):
         default=DATA_INPUT_ATTACHMENTS_IMAGES,
         help_text="Which file types can be attached to entries in the data input view (per selected entry).",
     )
+    data_input_show_street_view = models.BooleanField(
+        default=True,
+        help_text="When enabled, contributors see a Street View button in the geometry detail panel on the data-input map.",
+    )
 
     def __str__(self):
         return self.name
@@ -185,6 +189,11 @@ class VirtualContributor(models.Model):
     """Anonymous contributor for datasets with allow_anonymous_data_input. Tracks contributions without login."""
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
     display_name = models.CharField(max_length=255, blank=True)
+    welcome_field_values = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Answers from anonymous welcome modal, keyed by DatasetField.field_name",
+    )
     dataset = models.ForeignKey(DataSet, on_delete=models.CASCADE, related_name='virtual_contributors')
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
@@ -488,7 +497,11 @@ class DatasetField(models.Model):
     is_address_field = models.BooleanField(default=False, help_text="Whether this field represents the address")
     typology = models.ForeignKey(Typology, on_delete=models.SET_NULL, null=True, blank=True, help_text="Typology to use for this field (for choice fields)")
     typology_category = models.CharField(max_length=100, blank=True, null=True, help_text="Limit typology options to a specific category")
-    
+    anonymous_welcome = models.BooleanField(
+        default=False,
+        help_text="When anonymous data input is enabled: show this field in the welcome modal under Your name.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

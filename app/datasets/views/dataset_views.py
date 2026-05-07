@@ -3,7 +3,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.models import User, Group
 from django.contrib import messages
 from django.urls import reverse
-from django.http import JsonResponse
+from django.http import HttpResponseForbidden, JsonResponse
+from django.views.decorators.http import require_POST
 from django.db import transaction
 from django.core.paginator import Paginator
 from django.db.models import Q, Max
@@ -24,6 +25,135 @@ from ..models import (
     VirtualContributor,
 )
 from ..forms import DatasetFieldConfigForm, DatasetFieldForm, TransferOwnershipForm
+from .auth_views import is_manager
+
+
+def dataset_field_definition_for_js(field):
+    """Shape expected by data-input.js for a single field (same as fields_data rows)."""
+    return {
+        'id': field.id,
+        'name': field.label,
+        'label': field.label,
+        'field_type': field.field_type,
+        'field_name': field.field_name,
+        'required': field.required,
+        'enabled': field.enabled,
+        'non_editable': field.non_editable,
+        'help_text': field.help_text or '',
+        'choices': field.choices or '',
+        'order': field.order,
+        'typology_choices': field.get_choices_list(),
+        'typology_category': field.typology_category or '',
+    }
+
+
+def queryset_anonymous_welcome_fields(dataset):
+    return DatasetField.order_fields(
+        DatasetField.objects.filter(
+            dataset=dataset,
+            enabled=True,
+            anonymous_welcome=True,
+        ).exclude(field_type='headline')
+    )
+
+
+def normalize_welcome_field_submission(dataset, incoming):
+    """
+    Accept only enabled anonymous_welcome fields; return dict for VirtualContributor.welcome_field_values.
+    Raises ValueError with user-facing message on validation failure.
+    """
+    import json as json_mod
+
+    if incoming is None:
+        incoming = {}
+    if not isinstance(incoming, dict):
+        raise ValueError('Invalid welcome_fields payload')
+
+    allowed = list(queryset_anonymous_welcome_fields(dataset))
+    allowed_by_name = {f.field_name: f for f in allowed}
+    normalized = {}
+
+    for fname, f in allowed_by_name.items():
+        if f.required and fname not in incoming:
+            raise ValueError(f'Missing required field: {f.label}')
+
+    def _welcome_blank(raw):
+        if raw is None or raw == '':
+            return True
+        if isinstance(raw, list) and len(raw) == 0:
+            return True
+        return False
+
+    for key, raw in incoming.items():
+        if key not in allowed_by_name:
+            continue
+        field = allowed_by_name[key]
+        if _welcome_blank(raw):
+            if field.required:
+                raise ValueError(f'Missing required field: {field.label}')
+            continue
+
+        ft = field.field_type
+        if ft == 'boolean':
+            if raw is True or raw is False:
+                normalized[key] = raw
+            elif str(raw).lower() in ('true', '1', 'yes'):
+                normalized[key] = True
+            elif str(raw).lower() in ('false', '0', 'no'):
+                normalized[key] = False
+            else:
+                raise ValueError(f'Invalid value for {field.label}')
+        elif ft == 'integer':
+            try:
+                normalized[key] = int(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f'Invalid number for {field.label}')
+        elif ft == 'decimal':
+            try:
+                normalized[key] = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f'Invalid decimal for {field.label}')
+        elif ft == 'multiple_choice':
+            if isinstance(raw, str):
+                try:
+                    parsed = json_mod.loads(raw)
+                except json_mod.JSONDecodeError:
+                    parsed = [s.strip() for s in raw.split(',') if s.strip()]
+            elif isinstance(raw, list):
+                parsed = raw
+            else:
+                raise ValueError(f'Invalid format for {field.label}')
+            allowed_vals = set()
+            for opt in field.get_choices_list():
+                if isinstance(opt, dict):
+                    allowed_vals.add(str(opt.get('value', '')))
+                else:
+                    allowed_vals.add(str(opt))
+            for v in parsed:
+                if str(v) not in allowed_vals:
+                    raise ValueError(f'Invalid choice for {field.label}')
+            normalized[key] = [str(v) for v in parsed]
+        elif ft == 'choice':
+            allowed_vals = set()
+            for opt in field.get_choices_list():
+                if isinstance(opt, dict):
+                    allowed_vals.add(str(opt.get('value', '')))
+                else:
+                    allowed_vals.add(str(opt))
+            val = str(raw)
+            if val not in allowed_vals:
+                raise ValueError(f'Invalid choice for {field.label}')
+            normalized[key] = val
+        else:
+            normalized[key] = str(raw)
+
+    for fname, f in allowed_by_name.items():
+        if f.required and fname not in normalized:
+            raise ValueError(f'Missing required field: {f.label}')
+
+    return normalized
+
+
 def _get_typology_categories_map(user=None):
     categories = {}
     # Get typologies the user can access
@@ -42,7 +172,6 @@ def _get_typology_categories_map(user=None):
         )
         categories[str(typology.id)] = [value for value in category_values if value]
     return categories
-from .auth_views import is_manager
 
 
 def resolve_data_input_actor(request, dataset, require_virtual_contributor=False):
@@ -145,27 +274,31 @@ def dataset_detail_view(request, dataset_id):
                 # Update field configurations
                 for field in DatasetField.objects.filter(dataset=dataset):
                     field_id = field.id
-                    
-                    # Update label
-                    if f'field_{field_id}_label' in request.POST:
-                        field.label = request.POST[f'field_{field_id}_label']
-                    
+
                     # Update order
                     if f'field_{field_id}_order' in request.POST:
                         try:
                             field.order = int(request.POST[f'field_{field_id}_order'])
                         except ValueError:
                             pass
-                    
+
                     # Update enabled status
                     field.enabled = f'field_{field_id}_enabled' in request.POST
-                    
+
                     # Update required status
                     field.required = f'field_{field_id}_required' in request.POST
-                    
+
                     # Update non_editable status
                     field.non_editable = f'field_{field_id}_non_editable' in request.POST
-                    
+
+                    anon_ok = getattr(dataset, 'allow_anonymous_data_input', False)
+                    if anon_ok and field.field_type != 'headline':
+                        field.anonymous_welcome = (
+                            f'field_{field_id}_anonymous_welcome' in request.POST
+                        )
+                    else:
+                        field.anonymous_welcome = False
+
                     field.save()
                 
                 messages.success(request, 'Field configuration updated successfully.')
@@ -192,7 +325,8 @@ def dataset_detail_view(request, dataset_id):
         'geometries_count': geometries_count,
         'data_entries_count': data_entries_count,
         'all_fields': all_fields,
-        'anonymous_data_input_url': anonymous_data_input_url
+        'anonymous_data_input_url': anonymous_data_input_url,
+        'allow_anonymous_data_input': getattr(dataset, 'allow_anonymous_data_input', False),
     })
 
 
@@ -274,6 +408,7 @@ def dataset_edit_view(request, dataset_id):
             dataset.data_input_attachments_mode = (
                 attachment_mode if attachment_mode in allowed_attachment_modes else DataSet.DATA_INPUT_ATTACHMENTS_IMAGES
             )
+            dataset.data_input_show_street_view = request.POST.get('data_input_show_street_view') == 'on'
             dataset.save()
 
             field_config = ensure_dataset_field_config(dataset)
@@ -332,6 +467,7 @@ def dataset_copy_view(request, dataset_id):
             'data_input_attachments_mode',
             DataSet.DATA_INPUT_ATTACHMENTS_IMAGES,
         ),
+        'data_input_show_street_view': getattr(original_dataset, 'data_input_show_street_view', True),
     }
     if hasattr(original_dataset, 'map_default_lat'):
         create_kwargs['map_default_lat'] = original_dataset.map_default_lat
@@ -388,6 +524,7 @@ def dataset_copy_view(request, dataset_id):
             is_address_field=original_field.is_address_field,
             typology=original_field.typology,  # Reference to same typology
             typology_category=original_field.typology_category,
+            anonymous_welcome=getattr(original_field, 'anonymous_welcome', False),
         )
     
     # Copy MappingArea objects and their relationships
@@ -813,22 +950,7 @@ def dataset_data_input_view(request, dataset_id):
     # Prepare fields data for JavaScript with typology choices
     fields_data = []
     for field in all_fields:
-        field_data = {
-            'id': field.id,
-            'name': field.label,  # Use label for display
-            'label': field.label,
-            'field_type': field.field_type,
-            'field_name': field.field_name,
-            'required': field.required,
-            'enabled': field.enabled,
-            'non_editable': field.non_editable,
-            'help_text': field.help_text or '',
-            'choices': field.choices or '',
-            'order': field.order,
-            'typology_choices': field.get_choices_list(),
-            'typology_category': field.typology_category or ''
-        }
-        fields_data.append(field_data)
+        fields_data.append(dataset_field_definition_for_js(field))
     
     # Handle case where allow_multiple_entries field might not exist yet (migration not applied)
     try:
@@ -879,6 +1001,9 @@ def dataset_data_input_view(request, dataset_id):
         'show_anonymous_mapping_area_outlines': False,
         'entry_name_enabled': field_cfg.name_enabled,
         'entry_name_label': field_cfg.name_label,
+        'anonymous_welcome_fields_data': [],
+        'anonymous_welcome_prefill': {},
+        'data_input_show_street_view': getattr(dataset, 'data_input_show_street_view', True),
     })
 
 
@@ -898,6 +1023,10 @@ def register_virtual_user_view(request, dataset_id):
         body = {}
     vc_uuid_str = body.get('uuid')
     display_name = (body.get('display_name') or '').strip()[:255]
+    try:
+        validated_welcome = normalize_welcome_field_submission(dataset, body.get('welcome_fields'))
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'error': str(exc)}, status=400)
     if not vc_uuid_str:
         return JsonResponse({'success': False, 'error': 'UUID is required'}, status=400)
     try:
@@ -907,14 +1036,37 @@ def register_virtual_user_view(request, dataset_id):
     vc, created = VirtualContributor.objects.get_or_create(
         dataset=dataset,
         uuid=vc_uuid,
-        defaults={'display_name': display_name}
+        defaults={
+            'display_name': display_name,
+            'welcome_field_values': validated_welcome,
+        },
     )
-    if not created and display_name:
-        vc.display_name = display_name
-        vc.save(update_fields=['display_name', 'last_seen_at'])
+    if not created:
+        update_fields = ['welcome_field_values', 'last_seen_at']
+        vc.welcome_field_values = validated_welcome
+        if display_name:
+            vc.display_name = display_name
+            update_fields.insert(0, 'display_name')
+        vc.save(update_fields=update_fields)
     request.session[f'virtual_contributor_uuid_{dataset_id}'] = str(vc_uuid)
     request.session.modified = True
     return JsonResponse({'success': True, 'display_name': vc.display_name or 'Anonymous'})
+
+
+@require_POST
+def reset_anonymous_virtual_user_view(request, dataset_id):
+    """Clear virtual contributor binding in session so the welcome flow runs again."""
+    dataset = get_object_or_404(DataSet, pk=dataset_id)
+    token = request.session.get(f'anonymous_token_{dataset_id}')
+    if not getattr(dataset, 'allow_anonymous_data_input', False) or not token or dataset.anonymous_access_token != token:
+        return HttpResponseForbidden()
+    request.session.pop(f'virtual_contributor_uuid_{dataset_id}', None)
+    request.session.modified = True
+    url = reverse(
+        'dataset_data_input_anonymous',
+        kwargs={'dataset_id': dataset.id, 'token': dataset.anonymous_access_token},
+    )
+    return redirect(f'{url}?anonymous_session_reset=1')
 
 
 def dataset_data_input_anonymous_view(request, dataset_id, token):
@@ -984,22 +1136,7 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
 
     fields_data = []
     for field in all_fields:
-        field_data = {
-            'id': field.id,
-            'name': field.label,
-            'label': field.label,
-            'field_type': field.field_type,
-            'field_name': field.field_name,
-            'required': field.required,
-            'enabled': field.enabled,
-            'non_editable': field.non_editable,
-            'help_text': field.help_text or '',
-            'choices': field.choices or '',
-            'order': field.order,
-            'typology_choices': field.get_choices_list(),
-            'typology_category': field.typology_category or ''
-        }
-        fields_data.append(field_data)
+        fields_data.append(dataset_field_definition_for_js(field))
 
     allow_multiple_entries = getattr(dataset, 'allow_multiple_entries', False)
     enable_mapping_areas = False  # Hide for anonymous users
@@ -1008,6 +1145,13 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
     map_default_lat = getattr(dataset, 'map_default_lat', None)
     map_default_lng = getattr(dataset, 'map_default_lng', None)
     map_default_zoom = getattr(dataset, 'map_default_zoom', None)
+    anonymous_welcome_fields_data = [
+        dataset_field_definition_for_js(f) for f in queryset_anonymous_welcome_fields(dataset)
+    ]
+    anonymous_welcome_prefill = {}
+    if virtual_contributor and isinstance(getattr(virtual_contributor, 'welcome_field_values', None), dict):
+        anonymous_welcome_prefill = dict(virtual_contributor.welcome_field_values)
+
     field_cfg = ensure_dataset_field_config(dataset)
 
     return render(request, 'datasets/dataset_data_input.html', {
@@ -1033,6 +1177,9 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
         ),
         'entry_name_enabled': field_cfg.name_enabled,
         'entry_name_label': field_cfg.name_label,
+        'anonymous_welcome_fields_data': anonymous_welcome_fields_data,
+        'anonymous_welcome_prefill': anonymous_welcome_prefill,
+        'data_input_show_street_view': getattr(dataset, 'data_input_show_street_view', True),
     })
 
 

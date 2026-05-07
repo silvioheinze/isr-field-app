@@ -2,6 +2,10 @@
 {% load static %}
 {% load i18n %}
 
+{% block navbar_center %}
+{% include "datasets/includes/anonymous_change_user_nav.html" %}
+{% endblock %}
+
 {% block title %}{% trans "Data Input" %} - {{ dataset.name }}{% endblock %}
 
 {% block extra_css %}
@@ -161,10 +165,11 @@
             </div>
             <div class="modal-body">
                 <p class="mb-3">{% trans "You can add geometry points and data entries without logging in. Optionally, enter a name to identify your contributions:" %}</p>
-                <div class="mb-0">
+                <div class="mb-3">
                     <label for="virtualUserDisplayName" class="form-label">{% trans "Your name (optional)" %}</label>
                     <input type="text" class="form-control" id="virtualUserDisplayName" placeholder="{% trans 'e.g. John Doe' %}" maxlength="255">
                 </div>
+                <div id="anonymousWelcomeFieldsRoot" class="mt-3"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary" id="virtualUserNameSubmit">{% trans "Continue" %}</button>
@@ -178,6 +183,10 @@
 
 <!-- Field Configuration Data -->
 {{ fields_data|json_script:"allFields" }}
+{% if is_anonymous_data_input %}
+{{ anonymous_welcome_fields_data|json_script:"anonymousWelcomeFieldsData" }}
+{{ anonymous_welcome_prefill|json_script:"anonymousWelcomePrefillData" }}
+{% endif %}
 <script>
     try {
         var allFieldsElement = document.getElementById('allFields');
@@ -190,10 +199,35 @@
         window.allFields = [];
     }
     console.log('window.allFields initialized:', window.allFields);
+    try {
+        var awEl = document.getElementById('anonymousWelcomeFieldsData');
+        var apEl = document.getElementById('anonymousWelcomePrefillData');
+        window.anonymousWelcomeFieldDefinitions = awEl ? JSON.parse(awEl.textContent) : [];
+        window.anonymousWelcomePrefill = apEl ? JSON.parse(apEl.textContent) : {};
+    } catch (e) {
+        window.anonymousWelcomeFieldDefinitions = [];
+        window.anonymousWelcomePrefill = {};
+    }
     window.allowMultipleEntries = {% if allow_multiple_entries %}true{% else %}false{% endif %};
     window.entryNameEnabled = {% if entry_name_enabled %}true{% else %}false{% endif %};
     window.entryNameLabel = "{{ entry_name_label|default:'Entry Name'|escapejs }}";
     window.datasetId = {{ dataset.id }};
+    (function() {
+        try {
+            var sp = new URLSearchParams(window.location.search);
+            if (
+                sp.get('anonymous_session_reset') === '1' &&
+                {% if is_anonymous_data_input %}true{% else %}false{% endif %} &&
+                window.datasetId != null
+            ) {
+                localStorage.removeItem('virtualUserUuid_' + window.datasetId);
+                sp.delete('anonymous_session_reset');
+                var rest = sp.toString();
+                var cleanUrl = window.location.pathname + (rest ? ('?' + rest) : '');
+                window.history.replaceState({}, '', cleanUrl);
+            }
+        } catch (ignore) {}
+    })();
     window.dataInputAttachmentsMode = "{{ dataset.data_input_attachments_mode|default:'images'|escapejs }}";
     window.currentUserId = {% if user.is_authenticated %}{{ user.id }}{% else %}null{% endif %};
     window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
@@ -208,6 +242,7 @@
     window.mapDefaultZoom = {% if map_default_zoom %}{{ map_default_zoom }}{% else %}null{% endif %};
     {% if is_anonymous_data_input %}window.anonymousAccessToken = "{{ anonymous_access_token|escapejs }}";{% endif %}
     window.anonymousDisableNewPoints = {% if is_anonymous_data_input and dataset.anonymous_disable_new_points %}true{% else %}false{% endif %};
+    window.dataInputShowStreetView = {% if data_input_show_street_view %}true{% else %}false{% endif %};
     
     // Translation strings for JavaScript
     window.translations = {
@@ -254,6 +289,9 @@
         initializeDataInput(typologyData, allFields);
         if (window.showNameModal && window.isAnonymousDataInput) {
             var modal = new bootstrap.Modal(document.getElementById('virtualUserNameModal'));
+            var welcomeDefs = window.anonymousWelcomeFieldDefinitions || [];
+            var welcomeRoot = document.getElementById('anonymousWelcomeFieldsRoot');
+            renderAnonymousWelcomeControls(welcomeRoot, welcomeDefs, window.anonymousWelcomePrefill || {});
             modal.show();
             document.getElementById('virtualUserNameSubmit').addEventListener('click', function() {
                 var uuid = localStorage.getItem('virtualUserUuid_' + window.datasetId);
@@ -262,13 +300,10 @@
                     localStorage.setItem('virtualUserUuid_' + window.datasetId, uuid);
                 }
                 var displayName = document.getElementById('virtualUserDisplayName').value.trim();
-                var formData = new FormData();
-                formData.append('uuid', uuid);
-                formData.append('display_name', displayName);
-                formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+                var wf = collectAnonymousWelcomeFieldPayload(welcomeDefs);
                 fetch('/datasets/' + window.datasetId + '/register-virtual-user/', {
                     method: 'POST',
-                    body: JSON.stringify({uuid: uuid, display_name: displayName}),
+                    body: JSON.stringify({ uuid: uuid, display_name: displayName, welcome_fields: wf }),
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
@@ -279,6 +314,8 @@
                     if (data.success) {
                         modal.hide();
                         window.location.reload();
+                    } else {
+                        alert(data.error || 'Could not continue');
                     }
                 });
             });

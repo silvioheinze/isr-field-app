@@ -71,6 +71,16 @@
                                 <label class="form-check-label fw-semibold" for="allow_multiple_entries">Allow multiple entries per geometry</label>
                                 <div class="form-text">When enabled, contributors can attach more than one data entry to the same geometry point.</div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-light fw-semibold">
+                        <i class="bi bi-geo-alt me-2"></i>Data Input Map
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-column gap-3 mb-4 pb-3 border-bottom">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="enable_mapping_areas" name="enable_mapping_areas" {% if dataset.enable_mapping_areas %}checked{% endif %}>
                                 <label class="form-check-label fw-semibold" for="enable_mapping_areas">Enable mapping areas</label>
@@ -81,7 +91,7 @@
                                 <label class="form-check-label fw-semibold" for="allow_anonymous_data_input">Allow anonymous data input</label>
                                 <div class="form-text">When enabled, anyone with the shareable link can add geometry points and entries without logging in. By default, anonymous contributors only see their own points on the map unless you enable &quot;Show all points&quot; below.</div>
                             </div>
-                            <div id="anonymousDataInputExtras" class="ps-2 border-start border-2 ms-1 mt-2" style="display: {% if dataset.allow_anonymous_data_input %}block{% else %}none{% endif %};">
+                            <div id="anonymousDataInputExtras" class="ps-2 border-start border-2 ms-1 mt-0" style="display: {% if dataset.allow_anonymous_data_input %}block{% else %}none{% endif %};">
                                 <div class="form-check form-switch mb-3">
                                     <input class="form-check-input" type="checkbox" id="anonymous_show_all_points" name="anonymous_show_all_points" {% if dataset.anonymous_show_all_points %}checked{% endif %}>
                                     <label class="form-check-label fw-semibold" for="anonymous_show_all_points">Show all points</label>
@@ -113,18 +123,15 @@
                                 {% endif %}
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="card shadow-sm mb-4">
-                    <div class="card-header bg-light fw-semibold">
-                        <i class="bi bi-geo-alt me-2"></i>Data Input Map
-                    </div>
-                    <div class="card-body">
                         <div class="form-check form-switch mb-4 pb-3 border-bottom">
                             <input class="form-check-input" type="checkbox" id="show_entry_name_on_data_input" name="show_entry_name_on_data_input" {% if field_config.name_enabled %}checked{% endif %}>
                             <label class="form-check-label fw-semibold" for="show_entry_name_on_data_input">Show entry name on data input</label>
                             <div class="form-text">When enabled, contributors see the entry name field (and label) when creating a new entry on the map. When disabled, the name is set automatically from the geometry short ID. The label text can still be customized under Field configuration.</div>
+                        </div>
+                        <div class="form-check form-switch mb-4 pb-3 border-bottom">
+                            <input class="form-check-input" type="checkbox" id="data_input_show_street_view" name="data_input_show_street_view" {% if dataset.data_input_show_street_view %}checked{% endif %}>
+                            <label class="form-check-label fw-semibold" for="data_input_show_street_view">Show Street View button</label>
+                            <div class="form-text">When enabled, a link to Google Street View appears in the geometry detail panel on the data-input map (when a point has coordinates).</div>
                         </div>
                         <div class="mb-4 pb-3 border-bottom">
                             {% with attach_mode=dataset.data_input_attachments_mode|default:"images" %}

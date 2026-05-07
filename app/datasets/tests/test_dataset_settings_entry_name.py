@@ -17,6 +17,8 @@ class DatasetSettingsEntryNameTest(TestCase):
     def _post_settings(self, **extra):
         self.dataset.refresh_from_db()
         d = self.dataset
+        extra = dict(extra)
+        omit_street_view_checkbox = extra.pop('_omit_street_view_checkbox', False)
         data = {
             'name': d.name,
             'description': d.description or '',
@@ -33,8 +35,8 @@ class DatasetSettingsEntryNameTest(TestCase):
             data['anonymous_show_all_points'] = 'on'
         if d.anonymous_disable_new_points:
             data['anonymous_disable_new_points'] = 'on'
-        if d.anonymous_show_all_mapping_areas:
-            data['anonymous_show_all_mapping_areas'] = 'on'
+        if getattr(d, 'data_input_show_street_view', True) and not omit_street_view_checkbox:
+            data['data_input_show_street_view'] = 'on'
         if d.map_default_lat is not None:
             data['map_default_lat'] = str(d.map_default_lat)
         if d.map_default_lng is not None:
@@ -74,3 +76,28 @@ class DatasetSettingsEntryNameTest(TestCase):
         self.assertEqual(response.status_code, 302)
         cfg.refresh_from_db()
         self.assertTrue(cfg.name_enabled)
+
+    def test_uncheck_disables_data_input_street_view(self):
+        self.dataset.data_input_show_street_view = True
+        self.dataset.save(update_fields=['data_input_show_street_view'])
+        self.client.login(username='u', password='p')
+        r = self._post_settings(_omit_street_view_checkbox=True)
+        self.assertEqual(r.status_code, 302)
+        self.dataset.refresh_from_db()
+        self.assertFalse(self.dataset.data_input_show_street_view)
+
+    def test_post_enables_data_input_street_view(self):
+        self.dataset.data_input_show_street_view = False
+        self.dataset.save(update_fields=['data_input_show_street_view'])
+        self.client.login(username='u', password='p')
+        r = self._post_settings(data_input_show_street_view='on')
+        self.assertEqual(r.status_code, 302)
+        self.dataset.refresh_from_db()
+        self.assertTrue(self.dataset.data_input_show_street_view)
+
+    def test_settings_form_includes_street_view_toggle(self):
+        ensure_dataset_field_config(self.dataset)
+        self.client.login(username='u', password='p')
+        r = self.client.get(reverse('dataset_settings', args=[self.dataset.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'data_input_show_street_view')

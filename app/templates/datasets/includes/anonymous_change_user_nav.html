@@ -1,0 +1,10 @@
+{% load i18n %}
+{# Center / mobile-navbar slot: anonymous contributors who completed the welcome modal #}
+{% if is_anonymous_data_input and not show_name_modal %}
+<form method="post" action="{% url 'reset_anonymous_virtual_user' dataset.id %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-light btn-sm" title="{% trans 'Leave this temporary profile and answer the welcome form again.' %}">
+        <i class="bi bi-arrow-repeat"></i> {% trans "Change user" %}
+    </button>
+</form>
+{% endif %}

@@ -66,6 +66,11 @@ urlpatterns = [
     path('datasets/<int:dataset_id>/data-input/', datasets_views.dataset_data_input_view, name='dataset_data_input'),
     path('datasets/<int:dataset_id>/data-input/anonymous/<str:token>/', datasets_views.dataset_data_input_anonymous_view, name='dataset_data_input_anonymous'),
     path('datasets/<int:dataset_id>/register-virtual-user/', datasets_views.register_virtual_user_view, name='register_virtual_user'),
+    path(
+        'datasets/<int:dataset_id>/anonymous-reset-virtual-user/',
+        datasets_views.reset_anonymous_virtual_user_view,
+        name='reset_anonymous_virtual_user',
+    ),
     path('datasets/<int:dataset_id>/entries/', datasets_views.dataset_entries_table_view, name='dataset_entries_table'),
     path('datasets/<int:dataset_id>/fields/', datasets_views.dataset_fields_view, name='dataset_fields'),
     path('datasets/<int:dataset_id>/map-data/', datasets_views.dataset_map_data_view, name='dataset_map_data'),

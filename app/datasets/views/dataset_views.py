@@ -265,14 +265,20 @@ def dataset_edit_view(request, dataset_id):
             except (ValueError, TypeError, AttributeError):
                 pass
             dataset.save()
+
+            field_config = ensure_dataset_field_config(dataset)
+            field_config.name_enabled = request.POST.get('show_entry_name_on_data_input') == 'on'
+            field_config.save()
             
             messages.success(request, 'Dataset updated successfully!')
             return redirect('dataset_detail', dataset_id=dataset.id)
         else:
             messages.error(request, 'Dataset name is required.')
     
+    field_config = ensure_dataset_field_config(dataset)
     return render(request, 'datasets/dataset_settings.html', {
         'dataset': dataset,
+        'field_config': field_config,
         'geometries_count': DataGeometry.objects.filter(dataset=dataset).count(),
         'entries_count': DataEntry.objects.filter(geometry__dataset=dataset).count(),
         'field_count': DatasetField.objects.filter(dataset=dataset).count()
@@ -837,6 +843,8 @@ def dataset_data_input_view(request, dataset_id):
             restricted_ids = dataset.get_user_mapping_area_ids(request.user)
             show_collaborator_mapping_area_outlines = bool(restricted_ids)
 
+    field_cfg = ensure_dataset_field_config(dataset)
+
     return render(request, 'datasets/dataset_data_input.html', {
         'dataset': dataset,
         'geometries': geometries,
@@ -854,6 +862,8 @@ def dataset_data_input_view(request, dataset_id):
         'map_default_zoom': int(map_default_zoom) if map_default_zoom is not None else None,
         'show_collaborator_mapping_area_outlines': show_collaborator_mapping_area_outlines,
         'show_anonymous_mapping_area_outlines': False,
+        'entry_name_enabled': field_cfg.name_enabled,
+        'entry_name_label': field_cfg.name_label,
     })
 
 
@@ -983,7 +993,8 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
     map_default_lat = getattr(dataset, 'map_default_lat', None)
     map_default_lng = getattr(dataset, 'map_default_lng', None)
     map_default_zoom = getattr(dataset, 'map_default_zoom', None)
-    
+    field_cfg = ensure_dataset_field_config(dataset)
+
     return render(request, 'datasets/dataset_data_input.html', {
         'dataset': dataset,
         'geometries': geometries,
@@ -1005,6 +1016,8 @@ def dataset_data_input_anonymous_view(request, dataset_id, token):
             getattr(dataset, 'enable_mapping_areas', False)
             and getattr(dataset, 'anonymous_show_all_mapping_areas', False)
         ),
+        'entry_name_enabled': field_cfg.name_enabled,
+        'entry_name_label': field_cfg.name_label,
     })
 
 

@@ -6,7 +6,7 @@ from django.http import JsonResponse
 from django.db import transaction
 
 from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DatasetField
-from .dataset_views import resolve_data_input_actor
+from .dataset_views import resolve_data_input_actor, ensure_dataset_field_config
 
 
 @login_required
@@ -137,9 +137,13 @@ def entry_create_view(request, geometry_id):
             return render(request, 'datasets/403.html', status=403)
 
     if request.method == 'POST':
-        name = request.POST.get('name')
+        name = (request.POST.get('name') or '').strip()
         year = request.POST.get('year')
-        
+        field_config = ensure_dataset_field_config(dataset)
+
+        if not name and not field_config.name_enabled:
+            name = (geometry.id_kurz or '').strip() or f'Entry {geometry.pk}'
+
         if name:
             try:
                 year_int = int(year) if year else None

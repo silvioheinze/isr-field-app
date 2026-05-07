@@ -213,6 +213,8 @@
     }
     console.log('window.allFields initialized:', window.allFields);
     window.allowMultipleEntries = {% if allow_multiple_entries %}true{% else %}false{% endif %};
+    window.entryNameEnabled = {% if entry_name_enabled %}true{% else %}false{% endif %};
+    window.entryNameLabel = "{{ entry_name_label|default:'Entry Name'|escapejs }}";
     window.datasetId = {{ dataset.id }};
     window.currentUserId = {% if user.is_authenticated %}{{ user.id }}{% else %}null{% endif %};
     window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
@@ -240,7 +242,9 @@
         'geolocationNotSupported': '{% trans "Geolocation is not supported by this browser." %}',
         'geolocationError': '{% trans "Error getting your location: " %}',
         'deleteGeometryConfirm': '{% trans "Delete this geometry point and all its entries? This cannot be undone." %}',
-        'deleteGeometryFailed': '{% trans "Could not delete geometry." %}'
+        'deleteGeometryFailed': '{% trans "Could not delete geometry." %}',
+        'enterEntryName': '{% trans "Enter entry name" %}',
+        'pleaseEnterEntryName': '{% trans "Please enter an entry name." %}'
     };
 </script>
 {% endblock %}

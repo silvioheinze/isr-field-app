@@ -587,11 +587,15 @@ function generateEntriesTable(point) {
         entriesHtml += '</div>';
         entriesHtml += '<div class="card-body">';
         
-        // Entry name field
-        entriesHtml += '<div class="mb-3">';
-        entriesHtml += '<label for="new-entry-name" class="form-label">Entry Name <span class="text-danger">*</span></label>';
-        entriesHtml += '<input type="text" class="form-control" id="new-entry-name" placeholder="Enter entry name" value="' + point.id_kurz + '">';
-        entriesHtml += '</div>';
+        // Entry name field (optional: hidden when dataset field config disables it)
+        if (window.entryNameEnabled !== false) {
+            var nameLabel = window.entryNameLabel || 'Entry Name';
+            var namePh = (window.translations && window.translations.enterEntryName) ? window.translations.enterEntryName : 'Enter entry name';
+            entriesHtml += '<div class="mb-3">';
+            entriesHtml += '<label for="new-entry-name" class="form-label">' + escapeHtml(nameLabel) + ' <span class="text-danger">*</span></label>';
+            entriesHtml += '<input type="text" class="form-control" id="new-entry-name" placeholder="' + escapeHtml(namePh) + '" value="' + escapeHtml(point.id_kurz || '') + '">';
+            entriesHtml += '</div>';
+        }
         
         // Dynamic fields for new entry
         var fieldsToUse = window.allFields || allFields || [];
@@ -1298,22 +1302,33 @@ function createEntry() {
         return;
     }
     
-    var entryNameInput = document.getElementById('new-entry-name');
-    console.log('[createEntry] entryNameInput element:', entryNameInput);
-    
-    if (!entryNameInput) {
-        console.error('[createEntry] new-entry-name input not found');
-        alert('Entry name input field not found.');
-        return;
-    }
-    
-    var entryName = entryNameInput.value;
-    console.log('[createEntry] entryName value:', entryName);
-    
-    if (!entryName) {
-        console.warn('[createEntry] Entry name is empty');
-        alert('Please enter an entry name.');
-        return;
+    var entryName = '';
+    if (window.entryNameEnabled === false) {
+        entryName = (currentPoint.id_kurz || '').trim();
+        if (!entryName) {
+            entryName = 'Entry ' + String(currentPoint.id);
+        }
+        console.log('[createEntry] entry name from geometry (field hidden):', entryName);
+    } else {
+        var entryNameInput = document.getElementById('new-entry-name');
+        console.log('[createEntry] entryNameInput element:', entryNameInput);
+
+        if (!entryNameInput) {
+            console.error('[createEntry] new-entry-name input not found');
+            alert('Entry name input field not found.');
+            return;
+        }
+
+        entryName = (entryNameInput.value || '').trim();
+        console.log('[createEntry] entryName value:', entryName);
+
+        if (!entryName) {
+            console.warn('[createEntry] Entry name is empty');
+            var pleaseName = (window.translations && window.translations.pleaseEnterEntryName) ?
+                window.translations.pleaseEnterEntryName : 'Please enter an entry name.';
+            alert(pleaseName);
+            return;
+        }
     }
     
     var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
@@ -1387,7 +1402,10 @@ function createEntry() {
         console.log('[createEntry] Response data:', data);
         if (data.success) {
             // Clear form
-            document.getElementById('new-entry-name').value = '';
+            var newNameEl = document.getElementById('new-entry-name');
+            if (newNameEl) {
+                newNameEl.value = '';
+            }
             if (window.allFields && window.allFields.length > 0) {
                 window.allFields.forEach(function(field) {
                     if (field.enabled) {

@@ -427,7 +427,10 @@ class DatasetFieldConfig(models.Model):
     
     # Entry name field
     name_label = models.CharField(max_length=100, default='Entry Name')
-    name_enabled = models.BooleanField(default=True)
+    name_enabled = models.BooleanField(
+        default=True,
+        help_text='When disabled, the entry name field is hidden on map data input; new entries use the geometry short ID as the name unless you send a name explicitly.',
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

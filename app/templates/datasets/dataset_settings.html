@@ -121,6 +121,11 @@
                         <i class="bi bi-geo-alt me-2"></i>Data Input Map
                     </div>
                     <div class="card-body">
+                        <div class="form-check form-switch mb-4 pb-3 border-bottom">
+                            <input class="form-check-input" type="checkbox" id="show_entry_name_on_data_input" name="show_entry_name_on_data_input" {% if field_config.name_enabled %}checked{% endif %}>
+                            <label class="form-check-label fw-semibold" for="show_entry_name_on_data_input">Show entry name on data input</label>
+                            <div class="form-text">When enabled, contributors see the entry name field (and label) when creating a new entry on the map. When disabled, the name is set automatically from the geometry short ID. The label text can still be customized under Field configuration.</div>
+                        </div>
                         <p class="text-muted small mb-3">Set the initial map position and zoom level when users open the data input view. Click on the map to choose a location, or leave empty to use the default (Vienna).</p>
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">

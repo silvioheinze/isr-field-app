@@ -126,6 +126,18 @@
                             <label class="form-check-label fw-semibold" for="show_entry_name_on_data_input">Show entry name on data input</label>
                             <div class="form-text">When enabled, contributors see the entry name field (and label) when creating a new entry on the map. When disabled, the name is set automatically from the geometry short ID. The label text can still be customized under Field configuration.</div>
                         </div>
+                        <div class="mb-4 pb-3 border-bottom">
+                            {% with attach_mode=dataset.data_input_attachments_mode|default:"images" %}
+                            <label for="data_input_attachments_mode" class="form-label">Data input attachments</label>
+                            <select class="form-select" id="data_input_attachments_mode" name="data_input_attachments_mode">
+                                <option value="images" {% if attach_mode == "images" %}selected{% endif %}>images</option>
+                                <option value="audio" {% if attach_mode == "audio" %}selected{% endif %}>audio</option>
+                                <option value="images_audio" {% if attach_mode == "images_audio" %}selected{% endif %}>images and audio</option>
+                                <option value="none" {% if attach_mode == "none" %}selected{% endif %}>none</option>
+                            </select>
+                            {% endwith %}
+                            <div class="form-text">Controls which files contributors can attach per selected entry on the data input map.</div>
+                        </div>
                         <p class="text-muted small mb-3">Set the initial map position and zoom level when users open the data input view. Click on the map to choose a location, or leave empty to use the default (Vienna).</p>
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">

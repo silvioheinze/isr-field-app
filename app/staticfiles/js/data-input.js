@@ -17,6 +17,18 @@ var mappingAreasPanelVisible = false;
 var mappingAreaPolygons = [];
 var collaboratorMappingAreaPolygons = [];
 var currentDrawingPolygon = null;
+var entryAudioMediaRecorder = null;
+var entryAudioRecordChunks = [];
+var entryAudioStream = null;
+var entryAudioRecordedBlob = null;
+var entryAudioRecordedObjectUrl = null;
+/** Epoch ms when the current recording blob was finalized (for filename stamping) */
+var entryAudioRecordedAtMs = null;
+/** Web Audio level meter while recording */
+var entryAudioAnalyserContext = null;
+var entryAudioAnalyserNode = null;
+var entryAudioAnalyserRafId = null;
+var entryAudioAnalyserFreqBuf = null;
 var currentEditingPolygon = null;
 var selectedMappingArea = null;
 var drawControl = null;
@@ -325,7 +337,6 @@ function showGeometryDetails(point) {
     var detailsDiv = document.getElementById('geometryDetails');
     detailsDiv.classList.add('active');
     generateEntriesTable(point);
-    loadUploadedFiles();
     updateDeleteGeometryButton();
     if (typeof adjustColumnLayout === 'function') adjustColumnLayout();
 }
@@ -398,8 +409,463 @@ function deleteCurrentGeometry() {
 // Global variable to track selected entry
 var selectedEntryId = null;
 
+function releaseEntryAudioMicTracks() {
+    if (entryAudioStream && entryAudioStream.getTracks) {
+        entryAudioStream.getTracks().forEach(function(track) {
+            track.stop();
+        });
+    }
+    entryAudioStream = null;
+}
+
+function resetEntryAttachmentsGlobalState() {
+    entryAudioRecordedBlob = null;
+    entryAudioRecordedAtMs = null;
+    var previewLive = document.getElementById('entryAudioRecordedPreview');
+    if (previewLive && previewLive.src && previewLive.src.indexOf('blob:') === 0) {
+        try {
+            URL.revokeObjectURL(previewLive.src);
+        } catch (ignored) {}
+        previewLive.removeAttribute('src');
+        previewLive.classList.add('d-none');
+    }
+    if (entryAudioRecordedObjectUrl) {
+        try {
+            URL.revokeObjectURL(entryAudioRecordedObjectUrl);
+        } catch (ignored) {}
+        entryAudioRecordedObjectUrl = null;
+    }
+    if (entryAudioMediaRecorder) {
+        try {
+            entryAudioMediaRecorder.onstop = null;
+            if (entryAudioMediaRecorder.state === 'recording') {
+                entryAudioMediaRecorder.stop();
+            }
+        } catch (ignored) {}
+    }
+    entryAudioMediaRecorder = null;
+    entryAudioRecordChunks = [];
+    disconnectEntryAudioAnalyser();
+    releaseEntryAudioMicTracks();
+    var discardCtl = document.getElementById('entryAudioDiscardBtn');
+    if (discardCtl) {
+        discardCtl.disabled = true;
+    }
+}
+
+function zeroEntryAudioMeterBars() {
+    var meter = document.getElementById('entryAudioLevelMeter');
+    if (!meter) {
+        return;
+    }
+    var fills = meter.querySelectorAll('.entry-audio-meter-bar-fill');
+    for (var i = 0; i < fills.length; i++) {
+        fills[i].style.height = '10%';
+    }
+}
+
+function disconnectEntryAudioAnalyser() {
+    if (entryAudioAnalyserRafId != null) {
+        cancelAnimationFrame(entryAudioAnalyserRafId);
+        entryAudioAnalyserRafId = null;
+    }
+    if (entryAudioAnalyserContext) {
+        try {
+            entryAudioAnalyserContext.close();
+        } catch (ignore) {}
+        entryAudioAnalyserContext = null;
+    }
+    entryAudioAnalyserNode = null;
+    entryAudioAnalyserFreqBuf = null;
+    zeroEntryAudioMeterBars();
+}
+
+function startEntryAudioLevelMeterLoop() {
+    var meter = document.getElementById('entryAudioLevelMeter');
+    if (!meter || !entryAudioAnalyserNode) {
+        return;
+    }
+    var fills = meter.querySelectorAll('.entry-audio-meter-bar-fill');
+    if (fills.length < 1) {
+        return;
+    }
+    var binCount = entryAudioAnalyserNode.frequencyBinCount;
+    if (!entryAudioAnalyserFreqBuf || entryAudioAnalyserFreqBuf.length !== binCount) {
+        entryAudioAnalyserFreqBuf = new Uint8Array(binCount);
+    }
+    function tick() {
+        if (!entryAudioAnalyserNode || !entryAudioAnalyserFreqBuf) {
+            return;
+        }
+        entryAudioAnalyserNode.getByteFrequencyData(entryAudioAnalyserFreqBuf);
+        var buf = entryAudioAnalyserFreqBuf;
+        var pk = 0;
+        var k;
+        var acc = 0;
+        var base = buf.length > 4 ? 2 : 0;
+        for (k = base; k < buf.length; k++) {
+            var v = buf[k];
+            acc += v;
+            if (v > pk) {
+                pk = v;
+            }
+        }
+        var n = buf.length - base;
+        var mean = n > 0 ? acc / n / 255 : 0;
+        var peak = pk / 255;
+        var level = Math.max(mean * 0.55 + peak * 0.65, Math.sqrt(mean * peak));
+        level = Math.min(1, level);
+        var shaped = level * level;
+        var pct = Math.min(100, Math.round((0.1 + shaped * 0.9) * 100));
+        fills[0].style.height = Math.max(10, pct) + '%';
+        entryAudioAnalyserRafId = requestAnimationFrame(tick);
+    }
+    entryAudioAnalyserRafId = requestAnimationFrame(tick);
+}
+
+function updateEntryAudioToggleButtonUi(mode) {
+    var btn = document.getElementById('entryAudioRecordToggleBtn');
+    if (!btn) {
+        return;
+    }
+    var tr = window.translations || {};
+    if (mode === 'starting') {
+        btn.disabled = true;
+        btn.classList.remove('btn-danger', 'entry-audio-toggle-recording');
+        btn.classList.add('btn-outline-secondary');
+        btn.innerHTML = '<span class="entry-audio-starting-spinner spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' +
+            '<span>' + escapeHtml(tr.microphoneStarting || 'Starting…') + '</span>';
+        btn.setAttribute('aria-busy', 'true');
+        btn.removeAttribute('aria-pressed');
+        return;
+    }
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    if (mode === 'recording') {
+        btn.classList.remove('btn-outline-danger', 'btn-outline-secondary');
+        btn.classList.add('btn-danger', 'entry-audio-toggle-recording');
+        btn.innerHTML = '<i class="bi bi-stop-fill me-1" aria-hidden="true"></i>' +
+            escapeHtml(tr.recordStopLabel || 'Stop');
+        btn.setAttribute('aria-pressed', 'true');
+        btn.setAttribute('aria-label', tr.recordStopLabel || 'Stop recording');
+        btn.title = tr.recordStopLabel || 'Stop';
+        return;
+    }
+    btn.classList.remove('btn-danger', 'entry-audio-toggle-recording', 'btn-outline-secondary');
+    btn.classList.add('btn-outline-danger');
+    btn.innerHTML = '<i class="bi bi-mic-fill me-1" aria-hidden="true"></i>' +
+        escapeHtml(tr.recordStartLabel || 'Record');
+    btn.setAttribute('aria-pressed', 'false');
+    btn.setAttribute('aria-label', tr.recordStartLabel || 'Record');
+    btn.title = tr.recordStartLabel || 'Record';
+}
+
+function setEntryAudioRecorderStatus(text) {
+    var el = document.getElementById('entryAudioRecorderStatus');
+    if (el) {
+        el.textContent = text || '';
+    }
+}
+
+function pickEntryRecorderMimeType() {
+    var types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+    for (var i = 0; i < types.length; i++) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(types[i])) {
+            return types[i];
+        }
+    }
+    return '';
+}
+
+function attachEntryRecordedPreview(blob) {
+    if (!blob || blob.size < 1) {
+        return;
+    }
+    entryAudioRecordedBlob = blob;
+    entryAudioRecordedAtMs = Date.now();
+    var preview = document.getElementById('entryAudioRecordedPreview');
+    if (!preview) {
+        return;
+    }
+    if (entryAudioRecordedObjectUrl) {
+        try {
+            URL.revokeObjectURL(entryAudioRecordedObjectUrl);
+        } catch (ignored) {}
+        entryAudioRecordedObjectUrl = null;
+    }
+    entryAudioRecordedObjectUrl = URL.createObjectURL(blob);
+    preview.src = entryAudioRecordedObjectUrl;
+    preview.classList.remove('d-none');
+    var discardBtn = document.getElementById('entryAudioDiscardBtn');
+    if (discardBtn) {
+        discardBtn.disabled = false;
+    }
+    setEntryAudioRecorderStatus('');
+}
+
+function startEntryAudioRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert((window.translations && window.translations.microphoneDenied) || 'Microphone not available.');
+        return;
+    }
+    if (!window.MediaRecorder) {
+        alert((window.translations && window.translations.mediaRecorderUnsupported) || 'Recording not supported.');
+        return;
+    }
+    resetEntryAttachmentsGlobalState();
+    updateEntryAudioToggleButtonUi('starting');
+    setEntryAudioRecorderStatus('');
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(function(stream) {
+            entryAudioStream = stream;
+            entryAudioRecordChunks = [];
+            try {
+                var ACtor = window.AudioContext || window.webkitAudioContext;
+                if (ACtor && stream.getAudioTracks && stream.getAudioTracks().length > 0) {
+                    disconnectEntryAudioAnalyser();
+                    entryAudioAnalyserContext = new ACtor();
+                    entryAudioAnalyserNode = entryAudioAnalyserContext.createAnalyser();
+                    entryAudioAnalyserNode.fftSize = 512;
+                    entryAudioAnalyserNode.smoothingTimeConstant = 0.78;
+                    entryAudioAnalyserNode.minDecibels = -85;
+                    entryAudioAnalyserNode.maxDecibels = -12;
+                    var srcAnalyserNode = entryAudioAnalyserContext.createMediaStreamSource(stream);
+                    srcAnalyserNode.connect(entryAudioAnalyserNode);
+                    var resumeAnalyser = entryAudioAnalyserContext.state === 'suspended'
+                        ? entryAudioAnalyserContext.resume()
+                        : Promise.resolve();
+                    resumeAnalyser.catch(function() {}).then(function() {
+                        startEntryAudioLevelMeterLoop();
+                    });
+                }
+            } catch (aec) {
+                disconnectEntryAudioAnalyser();
+            }
+            var mime = pickEntryRecorderMimeType();
+            try {
+                entryAudioMediaRecorder = mime
+                    ? new MediaRecorder(stream, { mimeType: mime })
+                    : new MediaRecorder(stream);
+            } catch (e1) {
+                try {
+                    entryAudioMediaRecorder = new MediaRecorder(stream);
+                } catch (e2) {
+                    resetEntryAttachmentsGlobalState();
+                    updateEntryAudioToggleButtonUi('idle');
+                    setEntryAudioRecorderStatus('');
+                    alert((window.translations && window.translations.mediaRecorderUnsupported) || 'Recording not supported.');
+                    return;
+                }
+            }
+            entryAudioMediaRecorder.ondataavailable = function(ev) {
+                if (ev.data && ev.data.size > 0) {
+                    entryAudioRecordChunks.push(ev.data);
+                }
+            };
+            entryAudioMediaRecorder.onstop = function() {
+                var recorderMime = entryAudioMediaRecorder ? entryAudioMediaRecorder.mimeType : '';
+                disconnectEntryAudioAnalyser();
+                releaseEntryAudioMicTracks();
+                entryAudioMediaRecorder = null;
+                var chunks = entryAudioRecordChunks.slice();
+                entryAudioRecordChunks = [];
+                updateEntryAudioToggleButtonUi('idle');
+                if (chunks.length === 0) {
+                    setEntryAudioRecorderStatus('');
+                    return;
+                }
+                var blobType = recorderMime || 'audio/webm';
+                try {
+                    var blob = new Blob(chunks, { type: blobType });
+                    attachEntryRecordedPreview(blob);
+                } catch (ignored) {
+                    setEntryAudioRecorderStatus('');
+                }
+            };
+            entryAudioMediaRecorder.start();
+            updateEntryAudioToggleButtonUi('recording');
+            setEntryAudioRecorderStatus((window.translations && window.translations.recordingInProgress) || 'Recording…');
+        })
+        .catch(function() {
+            resetEntryAttachmentsGlobalState();
+            updateEntryAudioToggleButtonUi('idle');
+            setEntryAudioRecorderStatus('');
+            alert((window.translations && window.translations.microphoneDenied) || 'Microphone not available.');
+        });
+}
+
+function stopEntryAudioRecording() {
+    if (entryAudioMediaRecorder && entryAudioMediaRecorder.state === 'recording') {
+        try {
+            entryAudioMediaRecorder.stop();
+        } catch (ignored) {}
+    }
+}
+
+function buildEntryAttachmentsControls(showImages, showAudio, t) {
+    var html = '';
+    if (showImages) {
+        html += '<div class="mb-2">';
+        html +=
+            '<label class="form-label small mb-1" for="entryImageFileInput">' +
+            escapeHtml(t.selectImagesLabel || 'Images') +
+            '</label>';
+        html +=
+            '<input type="file" class="form-control form-control-sm" id="entryImageFileInput" multiple accept="image/*">';
+        html += '</div>';
+    }
+    if (showAudio) {
+        html += '<div class="border rounded p-2 mb-3 bg-light">';
+        html += '<div class="small fw-semibold mb-2">' + escapeHtml(t.recordAudioHeading || 'Record audio') + '</div>';
+        html += '<div class="d-flex flex-wrap gap-2 align-items-center mb-2">';
+        html +=
+            '<button type="button" class="btn btn-sm btn-outline-danger" id="entryAudioRecordToggleBtn" aria-pressed="false">';
+        html += '<i class="bi bi-mic-fill me-1" aria-hidden="true"></i>';
+        html += escapeHtml(t.recordStartLabel || 'Record') + '</button>';
+        html +=
+            '<div class="entry-audio-meter entry-audio-meter--compact rounded-1" id="entryAudioLevelMeter" role="img" aria-label="' +
+            escapeHtml(t.audioInputLevelAria || 'Microphone input level') +
+            '">';
+        html += '<div class="entry-audio-meter-bar" aria-hidden="true"><div class="entry-audio-meter-bar-fill"></div></div>';
+        html += '</div>';
+        html +=
+            '<button type="button" class="btn btn-sm btn-outline-secondary" id="entryAudioDiscardBtn" disabled>';
+        html += escapeHtml(t.recordDiscardLabel || 'Discard recording') + '</button>';
+        html += '</div>';
+        html += '<p class="text-muted small mb-2 mb-md-2" id="entryAudioRecorderStatus"></p>';
+        html += '<audio id="entryAudioRecordedPreview" class="w-100 d-none mt-1" controls></audio>';
+        html += '</div>';
+    }
+    return html;
+}
+
+/** Attachment inputs while creating a new entry (same IDs as editing; only one UI is rendered at a time). */
+function renderEntryAttachmentsPendingNew() {
+    var mode = window.dataInputAttachmentsMode || 'images';
+    if (mode === 'none') {
+        return '';
+    }
+    var showImages = mode === 'images' || mode === 'images_audio';
+    var showAudio = mode === 'audio' || mode === 'images_audio';
+    var t = window.translations || {};
+    var html = '<div class="border-top pt-3 mt-3 entry-attachments-pending">';
+    html += '<h6 class="fw-semibold mb-2"><i class="bi bi-paperclip me-2"></i>';
+    html += escapeHtml(t.attachmentsHeading || 'Attachments');
+    html += '</h6>';
+    html += '<p class="form-text small mb-2">';
+    html +=
+        escapeHtml(
+            t.attachWithCreateHint || 'Selected files and recordings are saved when you create the entry.'
+        );
+    html += '</p>';
+    html += '<div id="entryAttachmentsPendingShell">';
+    html += buildEntryAttachmentsControls(showImages, showAudio, t);
+    html += '</div></div>';
+    return html;
+}
+
+/** Attachment card when editing an existing entry (includes upload POST and file list). */
+function renderEntryAttachmentsExisting(selectedEntry) {
+    if (!selectedEntry) {
+        return '';
+    }
+    var mode = window.dataInputAttachmentsMode || 'images';
+    if (mode === 'none') {
+        return '';
+    }
+    var showImages = mode === 'images' || mode === 'images_audio';
+    var showAudio = mode === 'audio' || mode === 'images_audio';
+    var t = window.translations || {};
+    var html = '<div id="entryAttachmentsSection" class="card mb-3 border-secondary">';
+    html += '<div class="card-header bg-light py-2"><h6 class="mb-0">';
+    html += '<i class="bi bi-paperclip me-2"></i>';
+    html += escapeHtml(t.attachmentsHeading || 'Attachments');
+    html += '</h6></div><div class="card-body">';
+    html += '<form id="entryFileUploadForm" enctype="multipart/form-data">';
+    html += buildEntryAttachmentsControls(showImages, showAudio, t);
+    html += '<button type="submit" class="btn btn-primary btn-sm" id="entryMediaUploadSubmit"><i class="bi bi-upload me-1"></i>';
+    html += escapeHtml(t.uploadFilesLabel || 'Upload') + '</button>';
+    html += '</form>';
+    html += '<div class="mt-3"><div class="small text-muted mb-2">';
+    html += escapeHtml(t.uploadedFilesHeading || 'Uploaded files');
+    html += '</div><div id="entryFilesList"></div></div>';
+    html += '</div></div>';
+    return html;
+}
+
+function mimeAllowedForAttachmentsMode(contentType, mode) {
+    var mime = contentType || '';
+    var img = mime.indexOf('image/') === 0;
+    var aud = mime.indexOf('audio/') === 0;
+    if (mode === 'images') return img;
+    if (mode === 'audio') return aud;
+    if (mode === 'images_audio') return img || aud;
+    return false;
+}
+
+/** Gather chosen image files and pending recorded audio for the current attachments UI (no audio file picker). */
+function collectEntryMediaFilesFromDom() {
+    var filesToSend = [];
+    var imageInput = document.getElementById('entryImageFileInput');
+    if (imageInput && imageInput.files) {
+        for (var ii = 0; ii < imageInput.files.length; ii++) {
+            filesToSend.push(imageInput.files[ii]);
+        }
+    }
+    if (entryAudioRecordedBlob && entryAudioRecordedBlob.size > 0) {
+        var recMime = entryAudioRecordedBlob.type || 'audio/webm';
+        var recStamp =
+            entryAudioRecordedAtMs !== null && entryAudioRecordedAtMs !== undefined
+                ? entryAudioRecordedAtMs
+                : Date.now();
+        var recName =
+            'recording-' +
+            localRecordingDatetimeForFilename(recStamp) +
+            extensionForRecordedAudioMime(recMime);
+        try {
+            filesToSend.push(new File([entryAudioRecordedBlob], recName, { type: recMime }));
+        } catch (ignored) {
+            filesToSend.push(entryAudioRecordedBlob);
+        }
+    }
+    return filesToSend;
+}
+
+function validateEntryAttachmentFilesAgainstMode(filesToSend, mode) {
+    for (var vi = 0; vi < filesToSend.length; vi++) {
+        var f = filesToSend[vi];
+        var ok = mimeAllowedForAttachmentsMode(f.type, mode);
+        if (!ok && f.type === '' && typeof f.name === 'string') {
+            var ln = f.name.toLowerCase();
+            if (mode === 'audio' || mode === 'images_audio') {
+                if (/\.(webm|mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(ln)) ok = mode === 'audio' || mode === 'images_audio';
+            }
+            if (!ok && (mode === 'images' || mode === 'images_audio')) {
+                if (/\.(jpg|jpeg|png|gif|webp|bmp|tif|tiff|svg)$/i.test(ln))
+                    ok = mode === 'images' || mode === 'images_audio';
+            }
+        }
+        if (!ok) {
+            alert(
+                "One or more files are not allowed for this dataset's attachment settings."
+            );
+            return false;
+        }
+    }
+    return true;
+}
+
+function clearEntryAttachmentFileInputs() {
+    var imageInput = document.getElementById('entryImageFileInput');
+    if (imageInput) {
+        imageInput.value = '';
+    }
+}
+
 // Generate entries table
 function generateEntriesTable(point) {
+    resetEntryAttachmentsGlobalState();
+
     var entriesList = document.getElementById('entriesList');
     if (!entriesList) return;
 
@@ -653,10 +1119,13 @@ function generateEntriesTable(point) {
             entriesHtml += '<i class="bi bi-info-circle"></i> No fields configured for this dataset.';
             entriesHtml += '</div>';
         }
-        
+
+        entriesHtml += renderEntryAttachmentsPendingNew();
         entriesHtml += '</div>';
         entriesHtml += '</div>';
     }
+
+    entriesHtml += renderEntryAttachmentsExisting(selectedEntry);
     
     // Add action buttons
     entriesHtml += '<div class="mt-3 d-flex gap-2 flex-wrap">';
@@ -684,6 +1153,7 @@ function generateEntriesTable(point) {
     entriesHtml += '</div>';
     
     entriesList.innerHTML = entriesHtml;
+    loadUploadedFiles();
 }
 
 // Select an entry from the dropdown
@@ -1382,7 +1852,20 @@ function createEntry() {
     } else {
         console.log('[createEntry] No fields to add (window.allFields is empty or undefined)');
     }
-    
+
+    var attachMode = window.dataInputAttachmentsMode || 'images';
+    if (attachMode !== 'none') {
+        var createAttachFiles = collectEntryMediaFilesFromDom();
+        if (createAttachFiles.length > 0) {
+            if (!validateEntryAttachmentFilesAgainstMode(createAttachFiles, attachMode)) {
+                return;
+            }
+            for (var caf = 0; caf < createAttachFiles.length; caf++) {
+                formData.append('files', createAttachFiles[caf]);
+            }
+        }
+    }
+
     var url = window.location.origin + '/geometries/' + currentPoint.id + '/entries/create/';
     console.log('[createEntry] Fetching URL:', url);
     console.log('[createEntry] FormData entries:', Array.from(formData.entries()));
@@ -1421,6 +1904,11 @@ function createEntry() {
                 });
             }
             
+            clearEntryAttachmentFileInputs();
+            resetEntryAttachmentsGlobalState();
+            updateEntryAudioToggleButtonUi('idle');
+            setEntryAudioRecorderStatus('');
+
             // Reset file upload button (if it exists)
             var photoUploadInput = document.querySelector('#photo-upload-new');
             if (photoUploadInput && photoUploadInput.nextElementSibling) {
@@ -1874,160 +2362,250 @@ function initializeResponsiveLayout() {
     window.addEventListener('resize', adjustColumnLayout);
 }
 
-// File upload functionality
+/** Local date-time for filenames (no colons), e.g. 2026-05-07_14-35-42-089 */
+function localRecordingDatetimeForFilename(at) {
+    var d = at != null ? new Date(at) : new Date();
+    if (isNaN(d.getTime())) {
+        d = new Date();
+    }
+
+    function pad(n, len) {
+        var s = String(n);
+        len = len || 2;
+        while (s.length < len) {
+            s = '0' + s;
+        }
+        return s;
+    }
+
+    return (
+        d.getFullYear() +
+        '-' +
+        pad(d.getMonth() + 1) +
+        '-' +
+        pad(d.getDate()) +
+        '_' +
+        pad(d.getHours()) +
+        '-' +
+        pad(d.getMinutes()) +
+        '-' +
+        pad(d.getSeconds()) +
+        '-' +
+        pad(d.getMilliseconds(), 3)
+    );
+}
+
+function extensionForRecordedAudioMime(mimeHint) {
+    var m = (mimeHint || '').split(';')[0].trim().toLowerCase();
+    if (m === 'audio/webm') return '.webm';
+    if (m === 'audio/mp4') return '.m4a';
+    if (m === 'audio/ogg') return '.ogg';
+    if (m === 'audio/wav') return '.wav';
+    if (m === 'audio/mpeg') return '.mp3';
+    return '.webm';
+}
+
+// Per-entry file upload (images / audio / recorded audio)
 function initializeFileUpload() {
-    const fileUploadForm = document.getElementById('fileUploadForm');
-    if (!fileUploadForm) return;
-    
-    fileUploadForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        uploadFiles();
+    var section = document.getElementById('entriesSection');
+    if (!section || section.dataset.attachmentsDelegation === '1') {
+        return;
+    }
+    section.dataset.attachmentsDelegation = '1';
+    section.addEventListener('submit', function(evt) {
+        if (evt.target && evt.target.id === 'entryFileUploadForm') {
+            evt.preventDefault();
+            uploadEntryMediaFiles(evt.target);
+        }
+    });
+    section.addEventListener('click', function(evt) {
+        var toggleBtn = evt.target.closest('#entryAudioRecordToggleBtn');
+        if (toggleBtn) {
+            evt.preventDefault();
+            if (entryAudioMediaRecorder && entryAudioMediaRecorder.state === 'recording') {
+                stopEntryAudioRecording();
+            } else if (!toggleBtn.getAttribute('aria-busy')) {
+                startEntryAudioRecording();
+            }
+            return;
+        }
+        var discardBtn = evt.target.closest('#entryAudioDiscardBtn');
+        if (discardBtn) {
+            evt.preventDefault();
+            resetEntryAttachmentsGlobalState();
+            updateEntryAudioToggleButtonUi('idle');
+            return;
+        }
     });
 }
 
-function uploadFiles() {
+function uploadEntryMediaFiles(formEl) {
     if (!currentPoint) {
         alert('Please select a geometry point first.');
         return;
     }
-    
-    const fileInput = document.getElementById('fileInput');
-    const files = fileInput.files;
-    
-    if (files.length === 0) {
-        alert('Please select at least one image to upload.');
+    var mode = window.dataInputAttachmentsMode || 'images';
+    if (mode === 'none') {
         return;
     }
-    
-    // Validate that all files are images
-    for (let i = 0; i < files.length; i++) {
-        if (!files[i].type.startsWith('image/')) {
-            alert('Please select only image files.');
-            return;
-        }
+    var entryIdRaw = selectedEntryId;
+    var entryId = typeof entryIdRaw === 'number' ? entryIdRaw : parseInt(entryIdRaw, 10);
+    if (!entryId || entryIdRaw === 'new' || isNaN(entryId)) {
+        alert((window.translations && window.translations.attachmentsNeedEntry) || 'Select an entry first.');
+        return;
     }
-    
-    const formData = new FormData();
+    var filesToSend = collectEntryMediaFilesFromDom();
+    if (filesToSend.length === 0) {
+        alert((window.translations && window.translations.uploadNoFiles) || 'Please add files or record audio before uploading.');
+        return;
+    }
+    if (!validateEntryAttachmentFilesAgainstMode(filesToSend, mode)) {
+        return;
+    }
+    var formData = new FormData();
     formData.append('geometry_id', currentPoint.id);
-    
-    // Add all selected files
-    for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
+    formData.append('entry_id', entryId);
+    for (var fi = 0; fi < filesToSend.length; fi++) {
+        formData.append('files', filesToSend[fi]);
     }
-    
-    // Show loading state
-    const submitBtn = document.querySelector('#fileUploadForm button[type="submit"]');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Uploading...';
-    submitBtn.disabled = true;
-    
-    // Get CSRF token
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
+    var submitBtn = formEl.querySelector('#entryMediaUploadSubmit') || document.getElementById('entryMediaUploadSubmit');
+    var originalHtml = submitBtn ? submitBtn.innerHTML : '';
+    var originalDisabled = submitBtn ? submitBtn.disabled : false;
+    if (submitBtn) {
+        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Uploading...';
+        submitBtn.disabled = true;
+    }
+    var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     fetch('/datasets/upload-files/', {
         method: 'POST',
         body: formData,
         headers: { 'X-CSRFToken': csrfToken }
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Images uploaded successfully!');
-            // Clear form
-            fileInput.value = '';
-            // Refresh files list
-            loadUploadedFiles();
-        } else {
-            alert('Error uploading images: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Upload error:', error);
-        alert('Error uploading images. Please try again.');
-    })
-    .finally(() => {
-        // Reset button state
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-    });
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(data) {
+            if (data.success) {
+                clearEntryAttachmentFileInputs();
+                resetEntryAttachmentsGlobalState();
+                loadUploadedFiles();
+            } else {
+                alert('Error uploading files: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(function(error) {
+            console.error('Upload error:', error);
+            alert('Error uploading files. Please try again.');
+        })
+        .finally(function() {
+            if (submitBtn) {
+                submitBtn.innerHTML = originalHtml;
+                submitBtn.disabled = originalDisabled;
+            }
+        });
 }
 
 function loadUploadedFiles() {
-    if (!currentPoint) return;
-    
-    const filesList = document.getElementById('filesList');
-    if (!filesList) return;
-    
-    // Get CSRF token
-    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
-    fetch('/datasets/geometry/' + currentPoint.id + '/files/', {
+    if (!currentPoint) {
+        return;
+    }
+    var filesList = document.getElementById('entryFilesList');
+    if (!filesList) {
+        return;
+    }
+    var mode = window.dataInputAttachmentsMode || 'images';
+    if (mode === 'none') {
+        filesList.innerHTML = '';
+        return;
+    }
+    var entryIdRaw = selectedEntryId;
+    if (!entryIdRaw || entryIdRaw === 'new') {
+        filesList.innerHTML = '';
+        return;
+    }
+    var csrfEl = document.querySelector('[name=csrfmiddlewaretoken]');
+    var csrfToken = csrfEl ? csrfEl.value : '';
+    var url = '/datasets/geometry/' + currentPoint.id + '/files/?entry_id=' + encodeURIComponent(entryIdRaw);
+    fetch(url, {
+        credentials: 'same-origin',
         headers: { 'X-CSRFToken': csrfToken }
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            displayUploadedFiles(data.files);
-        } else {
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(data) {
+            if (data.success) {
+                displayUploadedFiles(data.files);
+            } else {
+                filesList.innerHTML = '<p class="text-muted">Error loading files.</p>';
+            }
+        })
+        .catch(function(error) {
+            console.error('Error loading files:', error);
             filesList.innerHTML = '<p class="text-muted">Error loading files.</p>';
-        }
-    })
-    .catch(error => {
-        console.error('Error loading files:', error);
-        filesList.innerHTML = '<p class="text-muted">Error loading files.</p>';
-    });
+        });
 }
 
 function displayUploadedFiles(files) {
-    const filesList = document.getElementById('filesList');
-    if (!filesList) return;
-    
-    if (files.length === 0) {
-        filesList.innerHTML = '<p class="text-muted">No files uploaded yet.</p>';
+    var filesList = document.getElementById('entryFilesList');
+    if (!filesList) {
         return;
     }
-    
-    let html = '<div class="list-group">';
-    files.forEach(file => {
-        const fileIcon = getFileIcon(file.file_type);
-        const fileSize = formatFileSize(file.file_size);
-        const uploadDate = file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : 'Unknown';
-        
-        html += '<div class="list-group-item d-flex justify-content-between align-items-center">' +
-            '<div>' +
-                '<i class="' + fileIcon + ' me-2"></i>' +
-                '<strong>' + (file.original_name || 'Unknown') + '</strong>' +
-                '<small class="text-muted ms-2">(' + fileSize + ')</small>' +
-                '<br><small class="text-muted">Uploaded: ' + uploadDate + '</small>' +
-            '</div>' +
-            '<div>' +
-                '<a href="' + (file.download_url || '#') + '" class="btn btn-sm btn-outline-primary me-1" title="Download">' +
+    if (!files || files.length === 0) {
+        filesList.innerHTML = '<p class="text-muted small mb-0">No files uploaded yet.</p>';
+        return;
+    }
+    var html = '<div class="list-group">';
+    files.forEach(function(file) {
+        var fileIcon = getFileIcon(file.file_type);
+        var fileSize = formatFileSize(file.file_size);
+        var uploadDate = file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : 'Unknown';
+        var nameHtml = escapeHtml(file.original_name || 'Unknown');
+        var dlRaw = file.download_url || '#';
+        var ft = file.file_type || '';
+        html += '<div class="list-group-item">' +
+            '<div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">' +
+            '<div class="flex-grow-1 min-w-0">' +
+                '<div><i class="' + fileIcon + ' me-2"></i><strong>' + nameHtml + '</strong>' +
+                '<small class="text-muted ms-2">(' + fileSize + ')</small></div>' +
+                '<small class="text-muted">Uploaded: ' + uploadDate + '</small>';
+        if (ft.indexOf('audio/') === 0 && dlRaw && dlRaw !== '#') {
+            html += '<audio class="w-100 mt-2" controls preload="none" src="' + escapeHtml(dlRaw) + '"></audio>';
+        }
+        html += '</div>' +
+            '<div class="d-flex gap-1 flex-shrink-0">' +
+                '<a href="' + escapeHtml(dlRaw) + '" class="btn btn-sm btn-outline-primary" title="Download" download>' +
                     '<i class="bi bi-download"></i>' +
                 '</a>' +
-                '<button class="btn btn-sm btn-outline-danger" onclick="deleteFile(' + (file.id || 0) + ')" title="Delete">' +
+                '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteFile(' + (file.id || 0) + ')" title="Delete">' +
                     '<i class="bi bi-trash"></i>' +
                 '</button>' +
-            '</div>' +
-        '</div>';
+            '</div></div></div>';
     });
     html += '</div>';
-    
     filesList.innerHTML = html;
 }
 
 function getFileIcon(fileType) {
-    if (!fileType) return 'bi bi-file';
-    if (fileType.startsWith('image/')) {
-        return 'bi bi-image';
-    } else if (fileType === 'application/pdf') {
-        return 'bi bi-file-pdf';
-    } else if (fileType.includes('word') || fileType.includes('document')) {
-        return 'bi bi-file-word';
-    } else if (fileType.includes('text')) {
-        return 'bi bi-file-text';
-    } else {
+    if (!fileType) {
         return 'bi bi-file';
     }
+    if (fileType.startsWith('image/')) {
+        return 'bi bi-image';
+    }
+    if (fileType.startsWith('audio/')) {
+        return 'bi bi-mic';
+    }
+    if (fileType === 'application/pdf') {
+        return 'bi bi-file-pdf';
+    }
+    if (fileType.includes('word') || fileType.includes('document')) {
+        return 'bi bi-file-word';
+    }
+    if (fileType.includes('text')) {
+        return 'bi bi-file-text';
+    }
+    return 'bi bi-file';
 }
 
 function formatFileSize(bytes) {

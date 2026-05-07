@@ -36,28 +36,6 @@
                     <div id="entriesSection">
                         <div id="entriesList"></div>
                     </div>
-                    
-                    <!-- File Upload Section -->
-                    <div id="fileUploadSection" class="mt-4">
-                        <h6 class="mb-3">{% trans "Image Upload" %}</h6>
-                        <form id="fileUploadForm" enctype="multipart/form-data">
-                            {% csrf_token %}
-                            <div class="mb-3">
-                                <label for="fileInput" class="form-label">{% trans "Select Images" %}</label>
-                                <input type="file" class="form-control" id="fileInput" name="files" multiple accept="image/*">
-                                <div class="form-text">{% trans "You can select multiple images. Supported formats: JPG, PNG, GIF, WebP." %}</div>
-                            </div>
-                            <button type="submit" class="btn btn-primary btn-sm">
-                                <i class="bi bi-upload"></i> {% trans "Upload Images" %}
-                            </button>
-                        </form>
-                        
-                        <!-- Uploaded Files List -->
-                        <div id="uploadedFilesList" class="mt-3">
-                            <h6 class="mb-2">{% trans "Uploaded Files" %}</h6>
-                            <div id="filesList"></div>
-                        </div>
-                    </div>
                 </div>
                 
                 <!-- Map Control Buttons -->
@@ -216,6 +194,7 @@
     window.entryNameEnabled = {% if entry_name_enabled %}true{% else %}false{% endif %};
     window.entryNameLabel = "{{ entry_name_label|default:'Entry Name'|escapejs }}";
     window.datasetId = {{ dataset.id }};
+    window.dataInputAttachmentsMode = "{{ dataset.data_input_attachments_mode|default:'images'|escapejs }}";
     window.currentUserId = {% if user.is_authenticated %}{{ user.id }}{% else %}null{% endif %};
     window.isDatasetOwner = {% if user.is_authenticated %}{% if dataset.owner == user or user.is_superuser %}true{% else %}false{% endif %}{% else %}false{% endif %};
     {# Only owner/superuser should load or draw mapping-area polygons; collaborators keep the flag false. #}
@@ -244,7 +223,23 @@
         'deleteGeometryConfirm': '{% trans "Delete this geometry point and all its entries? This cannot be undone." %}',
         'deleteGeometryFailed': '{% trans "Could not delete geometry." %}',
         'enterEntryName': '{% trans "Enter entry name" %}',
-        'pleaseEnterEntryName': '{% trans "Please enter an entry name." %}'
+        'pleaseEnterEntryName': '{% trans "Please enter an entry name." %}',
+        'attachmentsHeading': '{% trans "Attachments" %}',
+        'attachmentsNeedEntry': '{% trans "Select or create an entry before uploading files." %}',
+        'attachWithCreateHint': '{% trans "Selected files and recordings are saved when you create this entry." %}',
+        'selectImagesLabel': '{% trans "Images" %}',
+        'recordAudioHeading': '{% trans "Record audio" %}',
+        'recordStartLabel': '{% trans "Record" %}',
+        'recordStopLabel': '{% trans "Stop" %}',
+        'recordDiscardLabel': '{% trans "Discard recording" %}',
+        'uploadFilesLabel': '{% trans "Upload" %}',
+        'uploadedFilesHeading': '{% trans "Uploaded files" %}',
+        'uploadNoFiles': '{% trans "Please add files or record audio before uploading." %}',
+        'recordingInProgress': '{% trans "Recording…" %}',
+        'microphoneDenied': '{% trans "Microphone access was denied or is unavailable." %}',
+        'mediaRecorderUnsupported': '{% trans "Recording is not supported in this browser." %}',
+        'microphoneStarting': '{% trans "Starting…" %}',
+        'audioInputLevelAria': '{% trans "Microphone input level" %}'
     };
 </script>
 {% endblock %}

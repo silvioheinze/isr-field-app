@@ -264,6 +264,16 @@ def dataset_edit_view(request, dataset_id):
                 dataset.map_default_zoom = max(1, min(20, z)) if z is not None else None
             except (ValueError, TypeError, AttributeError):
                 pass
+            allowed_attachment_modes = {
+                DataSet.DATA_INPUT_ATTACHMENTS_IMAGES,
+                DataSet.DATA_INPUT_ATTACHMENTS_AUDIO,
+                DataSet.DATA_INPUT_ATTACHMENTS_IMAGES_AND_AUDIO,
+                DataSet.DATA_INPUT_ATTACHMENTS_NONE,
+            }
+            attachment_mode = request.POST.get('data_input_attachments_mode', DataSet.DATA_INPUT_ATTACHMENTS_IMAGES)
+            dataset.data_input_attachments_mode = (
+                attachment_mode if attachment_mode in allowed_attachment_modes else DataSet.DATA_INPUT_ATTACHMENTS_IMAGES
+            )
             dataset.save()
 
             field_config = ensure_dataset_field_config(dataset)
@@ -317,6 +327,11 @@ def dataset_copy_view(request, dataset_id):
         'anonymous_show_all_points': getattr(original_dataset, 'anonymous_show_all_points', False),
         'anonymous_disable_new_points': getattr(original_dataset, 'anonymous_disable_new_points', False),
         'anonymous_show_all_mapping_areas': getattr(original_dataset, 'anonymous_show_all_mapping_areas', False),
+        'data_input_attachments_mode': getattr(
+            original_dataset,
+            'data_input_attachments_mode',
+            DataSet.DATA_INPUT_ATTACHMENTS_IMAGES,
+        ),
     }
     if hasattr(original_dataset, 'map_default_lat'):
         create_kwargs['map_default_lat'] = original_dataset.map_default_lat

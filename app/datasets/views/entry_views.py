@@ -5,8 +5,9 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.db import transaction
 
-from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DatasetField
+from ..models import DataSet, DataGeometry, DataEntry, DataEntryField, DataEntryFile, DatasetField
 from .dataset_views import resolve_data_input_actor, ensure_dataset_field_config
+from .file_views import _mimetype_allowed_for_dataset_mode
 
 
 @login_required
@@ -149,56 +150,105 @@ def entry_create_view(request, geometry_id):
                 year_int = int(year) if year else None
             except ValueError:
                 year_int = None
-            
-            entry = DataEntry.objects.create(
-                geometry=geometry,
-                name=name,
-                year=year_int,
-                user=user,
-                virtual_contributor=vc
+
+            mode = getattr(
+                dataset, 'data_input_attachments_mode', DataSet.DATA_INPUT_ATTACHMENTS_IMAGES
             )
-            
-            # Create field values
-            for key, value in request.POST.items():
-                if key not in ['name', 'year', 'geometry_id', 'csrfmiddlewaretoken']:
-                    # Skip empty values to avoid creating empty fields
-                    if value and value.strip():
-                        # Get field type from DatasetField if it exists
-                        field_type = 'text'  # default
-                        try:
-                            dataset_field = DatasetField.objects.get(dataset=dataset, field_name=key)
-                            field_type = dataset_field.field_type
-                        except DatasetField.DoesNotExist:
-                            pass
-                        
-                        # Handle multiple_choice fields - validate and store as JSON
-                        if field_type == 'multiple_choice':
-                            import json
+            upload_files_list = request.FILES.getlist('files')
+            if mode == DataSet.DATA_INPUT_ATTACHMENTS_NONE and upload_files_list:
+                err = 'File uploads are disabled for this dataset.'
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({'success': False, 'error': err}, status=400)
+                messages.error(request, err)
+                return render(request, 'datasets/entry_create.html', {'geometry': geometry})
+
+            bad_file = None
+            for uf in upload_files_list:
+                if not _mimetype_allowed_for_dataset_mode(getattr(uf, 'content_type', '') or '', mode):
+                    bad_file = getattr(uf, 'name', 'file')
+                    break
+            if bad_file:
+                msg = (
+                    f'One or more files are not allowed for this dataset attachment settings '
+                    f'({bad_file}).'
+                )
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({'success': False, 'error': msg}, status=400)
+                messages.error(request, msg)
+                return render(request, 'datasets/entry_create.html', {'geometry': geometry})
+
+            with transaction.atomic():
+                entry = DataEntry.objects.create(
+                    geometry=geometry,
+                    name=name,
+                    year=year_int,
+                    user=user,
+                    virtual_contributor=vc
+                )
+
+                # Create field values
+                for key, value in request.POST.items():
+                    if key not in [
+                        'name',
+                        'year',
+                        'geometry_id',
+                        'csrfmiddlewaretoken',
+                        'files',
+                    ]:
+                        # Skip empty values to avoid creating empty fields
+                        if value and value.strip():
+                            # Get field type from DatasetField if it exists
+                            field_type = 'text'  # default
                             try:
-                                # Try parsing as JSON (should already be JSON from form)
-                                parsed = json.loads(value)
-                                if isinstance(parsed, list):
-                                    # Validate against available choices
-                                    try:
-                                        dataset_field = DatasetField.objects.get(dataset=dataset, field_name=key)
-                                        available_values = [str(opt.get('value', opt) if isinstance(opt, dict) else opt) for opt in dataset_field.get_choices_list()]
-                                        validated_values = [v for v in parsed if str(v) in available_values]
-                                        value = json.dumps(validated_values)
-                                    except DatasetField.DoesNotExist:
-                                        value = json.dumps(parsed)
-                                else:
-                                    value = json.dumps([parsed])
-                            except (json.JSONDecodeError, TypeError):
-                                # Fallback: treat as comma-separated string
-                                values_list = [v.strip() for v in value.split(',') if v.strip()]
-                                value = json.dumps(values_list)
-                        
-                        DataEntryField.objects.create(
-                            entry=entry,
-                            field_name=key,
-                            field_type=field_type,
-                            value=value.strip()
-                        )
+                                dataset_field = DatasetField.objects.get(dataset=dataset, field_name=key)
+                                field_type = dataset_field.field_type
+                            except DatasetField.DoesNotExist:
+                                pass
+
+                            # Handle multiple_choice fields - validate and store as JSON
+                            if field_type == 'multiple_choice':
+                                import json
+
+                                try:
+                                    # Try parsing as JSON (should already be JSON from form)
+                                    parsed = json.loads(value)
+                                    if isinstance(parsed, list):
+                                        # Validate against available choices
+                                        try:
+                                            dataset_field = DatasetField.objects.get(
+                                                dataset=dataset, field_name=key
+                                            )
+                                            available_values = [
+                                                str(opt.get('value', opt) if isinstance(opt, dict) else opt)
+                                                for opt in dataset_field.get_choices_list()
+                                            ]
+                                            validated_values = [v for v in parsed if str(v) in available_values]
+                                            value = json.dumps(validated_values)
+                                        except DatasetField.DoesNotExist:
+                                            value = json.dumps(parsed)
+                                    else:
+                                        value = json.dumps([parsed])
+                                except (json.JSONDecodeError, TypeError):
+                                    # Fallback: treat as comma-separated string
+                                    values_list = [v.strip() for v in value.split(',') if v.strip()]
+                                    value = json.dumps(values_list)
+
+                            DataEntryField.objects.create(
+                                entry=entry,
+                                field_name=key,
+                                field_type=field_type,
+                                value=value.strip(),
+                            )
+
+                for uf in upload_files_list:
+                    DataEntryFile.objects.create(
+                        entry=entry,
+                        file=uf,
+                        filename=getattr(uf, 'name', 'file'),
+                        file_type=getattr(uf, 'content_type', '') or 'application/octet-stream',
+                        file_size=int(getattr(uf, 'size', 0) or 0),
+                        upload_user=user,
+                    )
             
             # Return JSON response for AJAX requests
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':

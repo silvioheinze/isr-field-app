@@ -523,3 +523,68 @@
 .leaflet-tooltip.leaflet-mapping-area-name-tooltip .leaflet-tooltip-tip {
     display: none !important;
 }
+
+/* ===== In-browser audio recorder: input level meter + toggle ===== */
+.entry-audio-meter {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Single slim vertical bar, inline next to the record button */
+.entry-audio-meter--compact {
+    flex-shrink: 0;
+    width: 6px;
+    height: 1.625rem;
+    min-height: 1.625rem;
+    padding: 2px 1px;
+}
+
+.entry-audio-meter-bar {
+    flex: 0 0 auto;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.07);
+}
+
+.entry-audio-meter-bar-fill {
+    width: 100%;
+    height: 10%;
+    min-height: 8%;
+    border-radius: 1px;
+    background: linear-gradient(180deg, #ffb547 0%, #fd7e14 35%, #dc3545 100%);
+    transition: height 0.048s linear;
+    align-self: flex-end;
+}
+
+.entry-audio-starting-spinner {
+    vertical-align: -0.125em;
+}
+
+@keyframes entry-audio-recording-pulse {
+    50% {
+        box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.22);
+    }
+}
+
+.btn.entry-audio-toggle-recording.btn-danger {
+    animation: entry-audio-recording-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .entry-audio-meter-bar-fill {
+        transition: none;
+    }
+
+    .btn.entry-audio-toggle-recording.btn-danger {
+        animation: none;
+        box-shadow: none;
+    }
+}

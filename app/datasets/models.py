@@ -51,6 +51,22 @@ class DataSet(models.Model):
         help_text="Default map zoom level (1–20) when opening data input",
         validators=[MinValueValidator(1), MaxValueValidator(20)],
     )
+    DATA_INPUT_ATTACHMENTS_NONE = "none"
+    DATA_INPUT_ATTACHMENTS_IMAGES = "images"
+    DATA_INPUT_ATTACHMENTS_AUDIO = "audio"
+    DATA_INPUT_ATTACHMENTS_IMAGES_AND_AUDIO = "images_audio"
+    DATA_INPUT_ATTACHMENTS_MODE_CHOICES = [
+        (DATA_INPUT_ATTACHMENTS_IMAGES, "images"),
+        (DATA_INPUT_ATTACHMENTS_AUDIO, "audio"),
+        (DATA_INPUT_ATTACHMENTS_IMAGES_AND_AUDIO, "images and audio"),
+        (DATA_INPUT_ATTACHMENTS_NONE, "none"),
+    ]
+    data_input_attachments_mode = models.CharField(
+        max_length=32,
+        choices=DATA_INPUT_ATTACHMENTS_MODE_CHOICES,
+        default=DATA_INPUT_ATTACHMENTS_IMAGES,
+        help_text="Which file types can be attached to entries in the data input view (per selected entry).",
+    )
 
     def __str__(self):
         return self.name

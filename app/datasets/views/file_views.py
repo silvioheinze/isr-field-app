@@ -11,6 +11,22 @@ from ..models import DataSet, DataGeometry, DataEntry, DataEntryFile
 from .dataset_views import resolve_data_input_actor
 
 
+def _mimetype_allowed_for_dataset_mode(content_type, mode):
+    """Return True if Django-reported MIME is allowed for the dataset attachments mode."""
+    ct = (content_type or '').lower()
+    is_image = ct.startswith('image/')
+    is_audio = ct.startswith('audio/')
+    if mode == DataSet.DATA_INPUT_ATTACHMENTS_NONE:
+        return False
+    if mode == DataSet.DATA_INPUT_ATTACHMENTS_IMAGES:
+        return is_image
+    if mode == DataSet.DATA_INPUT_ATTACHMENTS_AUDIO:
+        return is_audio
+    if mode == DataSet.DATA_INPUT_ATTACHMENTS_IMAGES_AND_AUDIO:
+        return is_image or is_audio
+    return is_image
+
+
 @login_required
 def file_upload_view(request, entry_id):
     """Upload files for an entry"""
@@ -30,7 +46,8 @@ def file_upload_view(request, entry_id):
             uploaded_count = 0
             for file in files:
                 # Validate file type (only images)
-                if file.content_type.startswith('image/'):
+                mode = getattr(dataset, 'data_input_attachments_mode', DataSet.DATA_INPUT_ATTACHMENTS_IMAGES)
+                if _mimetype_allowed_for_dataset_mode(file.content_type, mode):
                     DataEntryFile.objects.create(
                         entry=entry,
                         file=file,
@@ -41,7 +58,7 @@ def file_upload_view(request, entry_id):
                     )
                     uploaded_count += 1
                 else:
-                    messages.warning(request, f'File {file.name} is not an image and was skipped.')
+                    messages.warning(request, f'File {file.name} is not allowed for this dataset and was skipped.')
             
             if uploaded_count > 0:
                 messages.success(request, f'{uploaded_count} file(s) uploaded successfully!')
@@ -106,13 +123,23 @@ def upload_files_view(request):
         return JsonResponse({'success': False, 'error': 'Only POST method allowed'}, status=405)
     try:
         geometry_id = request.POST.get('geometry_id')
+        entry_id = request.POST.get('entry_id')
         if not geometry_id:
             return JsonResponse({'success': False, 'error': 'Geometry ID is required'}, status=400)
+        if not entry_id:
+            return JsonResponse({'success': False, 'error': 'Entry ID is required'}, status=400)
         try:
             geometry = DataGeometry.objects.get(pk=geometry_id)
         except DataGeometry.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Geometry not found'}, status=404)
+        try:
+            entry = DataEntry.objects.get(pk=entry_id, geometry=geometry)
+        except DataEntry.DoesNotExist:
+            return JsonResponse({'success': False, 'error': 'Entry not found for this geometry'}, status=404)
         dataset = geometry.dataset
+        mode = getattr(dataset, 'data_input_attachments_mode', DataSet.DATA_INPUT_ATTACHMENTS_IMAGES)
+        if mode == DataSet.DATA_INPUT_ATTACHMENTS_NONE:
+            return JsonResponse({'success': False, 'error': 'File uploads are disabled for this dataset'}, status=400)
         user, vc = resolve_data_input_actor(request, dataset, require_virtual_contributor=True)
         if user is None and vc is None:
             return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
@@ -131,36 +158,29 @@ def upload_files_view(request):
         
         uploaded_files = []
         for file in files:
-            # Validate file type (only images)
-            if file.content_type.startswith('image/'):
-                # Create or get the first entry for this geometry
-                entry = geometry.entries.first()
-                if not entry:
-                    entry = DataEntry.objects.create(
-                        geometry=geometry,
-                        name=geometry.id_kurz,
-                        user=user,
-                        virtual_contributor=vc
-                    )
-                file_obj = DataEntryFile.objects.create(
-                    entry=entry,
-                    file=file,
-                    filename=file.name,
-                    file_type=file.content_type,
-                    file_size=file.size,
-                    upload_user=user
-                )
-                
-                uploaded_files.append({
-                    'id': file_obj.id,
-                    'filename': file_obj.filename,
-                    'file_type': file_obj.file_type,
-                    'file_size': file_obj.file_size,
-                    'upload_date': file_obj.upload_date.isoformat(),
-                    'download_url': file_obj.file.url
-                })
-            else:
-                return JsonResponse({'success': False, 'error': f'File {file.name} is not an image'}, status=400)
+            if not _mimetype_allowed_for_dataset_mode(file.content_type, mode):
+                return JsonResponse({
+                    'success': False,
+                    'error': f'File {file.name} is not allowed for this dataset\'s attachment settings',
+                }, status=400)
+
+            file_obj = DataEntryFile.objects.create(
+                entry=entry,
+                file=file,
+                filename=file.name,
+                file_type=file.content_type,
+                file_size=file.size,
+                upload_user=user,
+            )
+
+            uploaded_files.append({
+                'id': file_obj.id,
+                'filename': file_obj.filename,
+                'file_type': file_obj.file_type,
+                'file_size': file_obj.file_size,
+                'upload_date': file_obj.upload_date.isoformat(),
+                'download_url': file_obj.file.url,
+            })
         
         return JsonResponse({
             'success': True,
@@ -189,7 +209,17 @@ def geometry_files_view(request, geometry_id):
             if not dataset.anonymous_contributor_can_use_geometry(geometry, vc):
                 return JsonResponse({'success': False, 'error': 'Access denied'}, status=403)
         
-        files = DataEntryFile.objects.filter(entry__geometry=geometry).order_by('-upload_date')
+        entry_id = request.GET.get('entry_id')
+        if entry_id:
+            try:
+                entry = DataEntry.objects.get(pk=entry_id, geometry=geometry)
+            except (ValueError, TypeError, DataEntry.DoesNotExist):
+                return JsonResponse({'success': False, 'error': 'Entry not found'}, status=404)
+            files_qs = DataEntryFile.objects.filter(entry=entry)
+        else:
+            files_qs = DataEntryFile.objects.filter(entry__geometry=geometry)
+
+        files = files_qs.order_by('-upload_date')
         
         files_data = []
         for file in files:
